@@ -19,7 +19,7 @@ variable "cluster_name" {
 variable "cluster_version" {
   description = "Kubernetes version for the EKS cluster"
   type        = string
-  default     = "1.29"
+  default     = "1.33"
 }
 
 variable "vpc_cidr" {
@@ -31,7 +31,7 @@ variable "vpc_cidr" {
 variable "node_instance_types" {
   description = "List of instance types for the node group"
   type        = list(string)
-  default     = ["t3.medium"]
+  default     = ["t2.micro"]
 }
 
 variable "node_desired_size" {
