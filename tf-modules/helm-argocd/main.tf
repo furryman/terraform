@@ -2,7 +2,7 @@
 # Deploys ArgoCD and argocd-apps Helm charts
 
 # ArgoCD Namespace
-resource "kubernetes_namespace" "argocd" {
+resource "kubernetes_namespace_v1" "argocd" {
   metadata {
     name = "argocd"
   }
@@ -14,7 +14,7 @@ resource "helm_release" "argocd" {
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-cd"
   version    = var.argocd_version
-  namespace  = kubernetes_namespace.argocd.metadata[0].name
+  namespace  = kubernetes_namespace_v1.argocd.metadata[0].name
 
   values = [
     yamlencode({
@@ -36,7 +36,7 @@ resource "helm_release" "argocd" {
 
   wait = true
 
-  depends_on = [kubernetes_namespace.argocd]
+  depends_on = [kubernetes_namespace_v1.argocd]
 }
 
 # ArgoCD Apps Helm Release (App of Apps)
@@ -45,7 +45,7 @@ resource "helm_release" "argocd_apps" {
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argocd-apps"
   version    = var.argocd_apps_version
-  namespace  = kubernetes_namespace.argocd.metadata[0].name
+  namespace  = kubernetes_namespace_v1.argocd.metadata[0].name
 
   values = [
     yamlencode({

@@ -31,7 +31,7 @@ This repository contains Terraform configuration to deploy an AWS EKS cluster wi
 ## Prerequisites
 
 1. **AWS CLI** configured with appropriate credentials
-2. **Terraform** >= 1.5.0
+2. **Terraform** >= 1.14.0
 3. **kubectl** for cluster management
 4. **S3 bucket and DynamoDB table** for Terraform state (see Backend Setup)
 
