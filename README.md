@@ -6,7 +6,7 @@ This repository contains Terraform configuration to deploy an AWS EKS cluster wi
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      AWS Cloud                           │
+│                      AWS Cloud                          │
 │  ┌─────────────────────────────────────────────────┐    │
 │  │                    VPC                          │    │
 │  │  ┌─────────────────┐  ┌─────────────────────┐   │    │
@@ -14,16 +14,16 @@ This repository contains Terraform configuration to deploy an AWS EKS cluster wi
 │  │  │  (NAT Gateway)  │  │   (EKS Nodes)       │   │    │
 │  │  └─────────────────┘  └─────────────────────┘   │    │
 │  │                                                 │    │
-│  │  ┌─────────────────────────────────────────┐   │    │
-│  │  │            EKS Cluster                  │   │    │
-│  │  │  ┌───────────────────────────────────┐  │   │    │
-│  │  │  │  Node Group (2x t3.medium)        │  │   │    │
-│  │  │  │  - ArgoCD                         │  │   │    │
-│  │  │  │  - cert-manager                   │  │   │    │
-│  │  │  │  - ingress-nginx                  │  │   │    │
-│  │  │  │  - fuhriman-website               │  │   │    │
-│  │  │  └───────────────────────────────────┘  │   │    │
-│  │  └─────────────────────────────────────────┘   │    │
+│  │  ┌─────────────────────────────────────────┐    │    │
+│  │  │            EKS Cluster                  │    │    │
+│  │  │  ┌───────────────────────────────────┐  │    │    │
+│  │  │  │  Node Group (2x t2.micro)         │  │    │    │
+│  │  │  │  - ArgoCD                         │  │    │    │
+│  │  │  │  - cert-manager                   │  │    │    │
+│  │  │  │  - ingress-nginx                  │  │    │    │
+│  │  │  │  - fuhriman-website               │  │    │    │
+│  │  │  └───────────────────────────────────┘  │    │    │
+│  │  └─────────────────────────────────────────┘    │    │
 │  └─────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -77,19 +77,6 @@ aws dynamodb create-table \
   --region us-west-2
 ```
 
-## Deployment
-
-```bash
-# Initialize Terraform
-terraform init
-
-# Review the plan
-terraform plan
-
-# Apply the configuration
-terraform apply
-```
-
 ## Configure kubectl
 
 After deployment, configure kubectl to access the cluster:
@@ -120,8 +107,8 @@ terraform/
 |----------|-------------|---------|
 | `aws_region` | AWS region | `us-west-2` |
 | `cluster_name` | EKS cluster name | `fuhriman-eks` |
-| `cluster_version` | Kubernetes version | `1.29` |
-| `node_instance_types` | EC2 instance types | `["t3.medium"]` |
+| `cluster_version` | Kubernetes version | `1.35` |
+| `node_instance_types` | EC2 instance types | `["t2.micro"]` |
 | `node_desired_size` | Number of nodes | `2` |
 
 ## Outputs
@@ -144,10 +131,4 @@ kubectl port-forward svc/argocd-server -n argocd 8080:443
 # Access at https://localhost:8080
 # Username: admin
 # Password: (from command above)
-```
-
-## Cleanup
-
-```bash
-terraform destroy
 ```
