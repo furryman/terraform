@@ -4,7 +4,7 @@
 # terraform {
 #   backend "s3" {
 #     bucket         = "fuhriman-terraform-state"
-#     key            = "eks/terraform.tfstate"
+#     key            = "k3s/terraform.tfstate"
 #     region         = "us-west-2"
 #     dynamodb_table = "terraform-state-lock"
 #     encrypt        = true

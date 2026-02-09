@@ -3,28 +3,27 @@ output "vpc_id" {
   value       = module.vpc.vpc_id
 }
 
-output "cluster_name" {
-  description = "The name of the EKS cluster"
-  value       = module.eks.cluster_name
+output "instance_id" {
+  description = "The EC2 instance ID running k3s"
+  value       = module.k3s.instance_id
 }
 
-output "cluster_endpoint" {
-  description = "The endpoint for the EKS cluster API server"
-  value       = module.eks.cluster_endpoint
+output "instance_public_ip" {
+  description = "The public IP of the k3s instance"
+  value       = module.k3s.instance_public_ip
 }
 
-output "cluster_certificate_authority_data" {
-  description = "Base64 encoded certificate data for the cluster"
-  value       = module.eks.cluster_certificate_authority_data
-  sensitive   = true
+output "ssh_command" {
+  description = "SSH command to connect to the k3s instance"
+  value       = module.k3s.ssh_command
 }
 
-output "configure_kubectl" {
-  description = "Command to configure kubectl"
-  value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
+output "kubeconfig_command" {
+  description = "Command to retrieve kubeconfig from the instance"
+  value       = module.k3s.kubeconfig_command
 }
 
-output "argocd_namespace" {
-  description = "The namespace where ArgoCD is installed"
-  value       = module.argocd.argocd_namespace
+output "argocd_url" {
+  description = "URL to access the ArgoCD UI"
+  value       = module.k3s.argocd_url
 }

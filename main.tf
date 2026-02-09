@@ -1,5 +1,5 @@
 # Main Terraform Configuration
-# Orchestrates VPC, EKS, and ArgoCD modules
+# Orchestrates VPC and k3s modules
 
 locals {
   tags = {
@@ -18,27 +18,20 @@ module "vpc" {
   tags         = local.tags
 }
 
-# EKS Module
-module "eks" {
-  source = "./tf-modules/aws-eks"
+# k3s Module (replaces EKS + ArgoCD)
+module "k3s" {
+  source = "./tf-modules/aws-k3s"
 
-  cluster_name        = var.cluster_name
-  cluster_version     = var.cluster_version
-  vpc_id              = module.vpc.vpc_id
-  subnet_ids          = concat(module.vpc.public_subnet_ids, module.vpc.private_subnet_ids)
-  private_subnet_ids  = module.vpc.private_subnet_ids
-  node_instance_types = var.node_instance_types
-  node_desired_size   = var.node_desired_size
-  tags                = local.tags
+  cluster_name         = var.cluster_name
+  vpc_id               = module.vpc.vpc_id
+  subnet_id            = module.vpc.public_subnet_id
+  instance_type        = var.instance_type
+  volume_size          = var.volume_size
+  ssh_public_key       = var.ssh_public_key
+  allowed_ssh_cidrs    = var.allowed_ssh_cidrs
+  app_of_apps_repo_url = var.app_of_apps_repo_url
+  argocd_chart_version = var.argocd_chart_version
+  tags                 = local.tags
 
   depends_on = [module.vpc]
-}
-
-# ArgoCD Module
-module "argocd" {
-  source = "./tf-modules/helm-argocd"
-
-  app_of_apps_repo_url = var.app_of_apps_repo_url
-
-  depends_on = [module.eks]
 }

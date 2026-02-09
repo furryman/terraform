@@ -1,5 +1,5 @@
 # AWS VPC Module
-# Creates VPC, subnets, Internet Gateway, NAT Gateway, and route tables
+# Creates VPC, subnets, Internet Gateway, and route tables
 
 data "aws_availability_zones" "available" {
   state = "available"
@@ -37,46 +37,19 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = merge(var.tags, {
-    Name                                        = "${var.cluster_name}-public-subnet"
-    "kubernetes.io/role/elb"                    = "1"
-    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    Name = "${var.cluster_name}-public-subnet"
   })
 }
 
-# Private Subnet
+# Private Subnet (reserved for future use)
 resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = var.private_subnet_cidr
   availability_zone = local.azs[0]
 
   tags = merge(var.tags, {
-    Name                                        = "${var.cluster_name}-private-subnet"
-    "kubernetes.io/role/internal-elb"           = "1"
-    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    Name = "${var.cluster_name}-private-subnet"
   })
-}
-
-# Elastic IP for NAT Gateway
-resource "aws_eip" "nat" {
-  domain = "vpc"
-
-  tags = merge(var.tags, {
-    Name = "${var.cluster_name}-nat-eip"
-  })
-
-  depends_on = [aws_internet_gateway.main]
-}
-
-# NAT Gateway
-resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public.id
-
-  tags = merge(var.tags, {
-    Name = "${var.cluster_name}-nat-gw"
-  })
-
-  depends_on = [aws_internet_gateway.main]
 }
 
 # Public Route Table
@@ -93,27 +66,8 @@ resource "aws_route_table" "public" {
   })
 }
 
-# Private Route Table
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
-  }
-
-  tags = merge(var.tags, {
-    Name = "${var.cluster_name}-private-rt"
-  })
-}
-
-# Route Table Associations
+# Route Table Association
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table_association" "private" {
-  subnet_id      = aws_subnet.private.id
-  route_table_id = aws_route_table.private.id
 }

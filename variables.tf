@@ -11,15 +11,9 @@ variable "environment" {
 }
 
 variable "cluster_name" {
-  description = "Name of the EKS cluster"
+  description = "Name prefix for all resources"
   type        = string
-  default     = "fuhriman-eks"
-}
-
-variable "cluster_version" {
-  description = "Kubernetes version for the EKS cluster"
-  type        = string
-  default     = "1.35"
+  default     = "fuhriman-k3s"
 }
 
 variable "vpc_cidr" {
@@ -28,20 +22,42 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
-variable "node_instance_types" {
-  description = "List of instance types for the node group"
-  type        = list(string)
-  default     = ["t2.micro"]
+variable "instance_type" {
+  description = "EC2 instance type for the k3s node"
+  type        = string
+  default     = "t3.micro"
 }
 
-variable "node_desired_size" {
-  description = "Desired number of worker nodes"
+variable "volume_size" {
+  description = "Root EBS volume size in GB"
   type        = number
-  default     = 2
+  default     = 20
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key for EC2 instance access"
+  type        = string
+}
+
+variable "allowed_ssh_cidrs" {
+  description = "CIDR blocks allowed for SSH and k3s API access"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 
 variable "app_of_apps_repo_url" {
   description = "Git repository URL for the app-of-apps chart"
   type        = string
   default     = "https://github.com/furryman/argocd-app-of-apps.git"
+}
+
+variable "argocd_chart_version" {
+  description = "ArgoCD Helm chart version"
+  type        = string
+  default     = "5.55.0"
+}
+
+variable "budget_notification_email" {
+  description = "Email address for AWS budget alert notifications"
+  type        = string
 }

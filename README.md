@@ -1,6 +1,6 @@
 # Terraform Infrastructure for fuhriman.org
 
-This repository contains Terraform configuration to deploy an AWS EKS cluster with ArgoCD for GitOps-based deployments.
+This repository contains Terraform configuration to deploy a lightweight k3s Kubernetes cluster on AWS with ArgoCD for GitOps-based deployments.
 
 ## Architecture
 
@@ -9,22 +9,21 @@ This repository contains Terraform configuration to deploy an AWS EKS cluster wi
 │                      AWS Cloud                          │
 │  ┌─────────────────────────────────────────────────┐    │
 │  │                    VPC                          │    │
-│  │  ┌─────────────────┐  ┌─────────────────────┐   │    │
-│  │  │  Public Subnet  │  │   Private Subnet    │   │    │
-│  │  │  (NAT Gateway)  │  │   (EKS Nodes)       │   │    │
-│  │  └─────────────────┘  └─────────────────────┘   │    │
-│  │                                                 │    │
 │  │  ┌─────────────────────────────────────────┐    │    │
-│  │  │            EKS Cluster                  │    │    │
+│  │  │            Public Subnet                │    │    │
+│  │  │                                         │    │    │
 │  │  │  ┌───────────────────────────────────┐  │    │    │
-│  │  │  │  Node Group (2x t2.micro)         │  │    │    │
-│  │  │  │  - ArgoCD                         │  │    │    │
-│  │  │  │  - cert-manager                   │  │    │    │
-│  │  │  │  - ingress-nginx                  │  │    │    │
+│  │  │  │  EC2 t3.micro (k3s)               │  │    │    │
+│  │  │  │  - ArgoCD (:30443)                │  │    │    │
+│  │  │  │  - App-of-Apps (GitOps)           │  │    │    │
 │  │  │  │  - fuhriman-website               │  │    │    │
 │  │  │  └───────────────────────────────────┘  │    │    │
 │  │  └─────────────────────────────────────────┘    │    │
 │  └─────────────────────────────────────────────────┘    │
+│                                                         │
+│  ┌─────────────────────────┐                            │
+│  │  AWS Budget ($25/mo)    │                            │
+│  └─────────────────────────┘                            │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -33,11 +32,28 @@ This repository contains Terraform configuration to deploy an AWS EKS cluster wi
 1. **AWS CLI** configured with appropriate credentials
 2. **Terraform** >= 1.14.0
 3. **kubectl** for cluster management
-4. **S3 bucket and DynamoDB table** for Terraform state (see Backend Setup)
+4. **SSH key pair** for EC2 instance access
+
+## Quick Start
+
+```bash
+# Initialize Terraform
+terraform init
+
+# Create terraform.tfvars with required variables
+cat > terraform.tfvars <<'EOF'
+ssh_public_key            = "ssh-rsa AAAA... user@host"
+budget_notification_email = "you@example.com"
+EOF
+
+# Plan and apply
+terraform plan
+terraform apply
+```
 
 ## Backend Setup
 
-Before running Terraform, create the required AWS resources for state management:
+Before running Terraform, optionally create the required AWS resources for remote state management:
 
 ```bash
 # Create S3 bucket
@@ -77,12 +93,23 @@ aws dynamodb create-table \
   --region us-west-2
 ```
 
+Then uncomment the backend block in `backend.tf`.
+
 ## Configure kubectl
 
-After deployment, configure kubectl to access the cluster:
+After deployment, retrieve the kubeconfig from the k3s instance:
 
 ```bash
-aws eks update-kubeconfig --region us-west-2 --name fuhriman-eks
+# Get the instance IP from Terraform output
+terraform output instance_public_ip
+
+# Copy kubeconfig
+scp ec2-user@<instance-ip>:/etc/rancher/k3s/k3s.yaml ./k3s-kubeconfig.yaml
+sed -i 's/127.0.0.1/<instance-ip>/g' ./k3s-kubeconfig.yaml
+export KUBECONFIG=./k3s-kubeconfig.yaml
+
+# Verify
+kubectl get nodes
 ```
 
 ## Module Structure
@@ -90,14 +117,14 @@ aws eks update-kubeconfig --region us-west-2 --name fuhriman-eks
 ```
 terraform/
 ├── tf-modules/
-│   ├── aws-vpc/        # VPC, subnets, NAT Gateway, route tables
-│   ├── aws-eks/        # EKS cluster, node group, IAM roles
-│   └── helm-argocd/    # ArgoCD and argocd-apps Helm releases
+│   ├── aws-vpc/        # VPC, subnets, Internet Gateway, route tables
+│   └── aws-k3s/        # EC2 instance, k3s, ArgoCD (via cloud-init)
 ├── main.tf             # Root module composition
 ├── variables.tf        # Input variables
 ├── outputs.tf          # Output values
-├── providers.tf        # Provider configuration
-├── backend.tf          # S3 backend configuration
+├── providers.tf        # AWS provider configuration
+├── budget.tf           # AWS budget alert ($25/mo)
+├── backend.tf          # S3 backend configuration (commented out)
 └── README.md
 ```
 
@@ -106,29 +133,40 @@ terraform/
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `aws_region` | AWS region | `us-west-2` |
-| `cluster_name` | EKS cluster name | `fuhriman-eks` |
-| `cluster_version` | Kubernetes version | `1.35` |
-| `node_instance_types` | EC2 instance types | `["t2.micro"]` |
-| `node_desired_size` | Number of nodes | `2` |
+| `cluster_name` | Name prefix for resources | `fuhriman-k3s` |
+| `instance_type` | EC2 instance type | `t3.micro` |
+| `volume_size` | Root EBS volume size (GB) | `20` |
+| `ssh_public_key` | SSH public key content | *required* |
+| `allowed_ssh_cidrs` | CIDRs for SSH/API access | `["0.0.0.0/0"]` |
+| `app_of_apps_repo_url` | ArgoCD App-of-Apps repo | `https://github.com/furryman/argocd-app-of-apps.git` |
+| `argocd_chart_version` | ArgoCD Helm chart version | `5.55.0` |
+| `budget_notification_email` | Email for budget alerts | *required* |
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
-| `cluster_endpoint` | EKS API server endpoint |
-| `configure_kubectl` | Command to configure kubectl |
-| `argocd_namespace` | ArgoCD namespace |
+| `instance_public_ip` | Public IP of the k3s instance |
+| `ssh_command` | SSH command to connect |
+| `kubeconfig_command` | Command to retrieve kubeconfig |
+| `argocd_url` | URL to access ArgoCD UI |
 
 ## Access ArgoCD UI
 
 ```bash
 # Get ArgoCD admin password
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+ssh ec2-user@<instance-ip> "sudo kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 
-# Port forward to access UI locally
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-
-# Access at https://localhost:8080
+# Access at https://<instance-ip>:30443
 # Username: admin
 # Password: (from command above)
 ```
+
+## Cost Estimate
+
+| Component | Free Tier | After Free Tier |
+|-----------|-----------|-----------------|
+| EC2 t3.micro | $0 (750 hrs/mo) | ~$8.50/mo |
+| EBS 20GB gp3 | $0 (30GB free) | ~$1.60/mo |
+| Public IPv4 | ~$3.65/mo | ~$3.65/mo |
+| **Total** | **~$4/mo** | **~$14/mo** |

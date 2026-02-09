@@ -23,7 +23,3 @@ output "private_subnet_ids" {
   value       = [aws_subnet.private.id]
 }
 
-output "nat_gateway_ip" {
-  description = "The public IP of the NAT Gateway"
-  value       = aws_eip.nat.public_ip
-}
