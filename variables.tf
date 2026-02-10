@@ -25,7 +25,7 @@ variable "vpc_cidr" {
 variable "instance_type" {
   description = "EC2 instance type for the k3s node"
   type        = string
-  default     = "t3.micro"
+  default     = "t3.small"  # 2GB RAM - enough for k3s + ArgoCD
 }
 
 variable "volume_size" {

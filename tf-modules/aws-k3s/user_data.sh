@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
-exec > >(tee /var/log/k3s-init.log) 2>&1
+
+# Ensure log directory exists and redirect all output
+mkdir -p /var/log
+exec > >(tee -a /var/log/k3s-init.log) 2>&1
 
 echo "=== Starting k3s and ArgoCD installation ==="
 
@@ -84,6 +87,42 @@ helm install argocd-apps argo/argocd-apps \
   --wait --timeout 120s
 
 rm -f /tmp/argocd-apps-values.yaml
+
+# Wait for ingress-nginx to be deployed by ArgoCD
+echo "Waiting for ingress-nginx to be deployed..."
+until /usr/local/bin/kubectl get namespace ingress-nginx &>/dev/null; do
+  echo "Waiting for ingress-nginx namespace..."
+  sleep 5
+done
+
+echo "Waiting for ingress-nginx service..."
+until /usr/local/bin/kubectl get svc -n ingress-nginx ingress-nginx-controller &>/dev/null; do
+  sleep 5
+done
+
+# Wait for service to have ClusterIP assigned
+until INGRESS_IP=$(/usr/local/bin/kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.clusterIP}' 2>/dev/null) && [ -n "$INGRESS_IP" ]; do
+  echo "Waiting for ingress-nginx ClusterIP..."
+  sleep 5
+done
+
+echo "Ingress-nginx ClusterIP: $INGRESS_IP"
+
+# Configure CoreDNS for split-horizon DNS (hairpin NAT workaround)
+echo "Configuring CoreDNS for internal DNS resolution..."
+/usr/local/bin/kubectl get configmap coredns -n kube-system -o yaml > /tmp/coredns-backup.yaml
+
+# Patch CoreDNS to add custom DNS entries
+/usr/local/bin/kubectl get configmap coredns -n kube-system -o yaml | \
+  awk -v ip="$INGRESS_IP" '/NodeHosts: \|/{print; print "    " ip " fuhriman.org"; print "    " ip " www.fuhriman.org"; next}1' | \
+  /usr/local/bin/kubectl apply -f -
+
+# Restart CoreDNS to pick up changes
+echo "Restarting CoreDNS..."
+/usr/local/bin/kubectl rollout restart deployment coredns -n kube-system
+/usr/local/bin/kubectl rollout status deployment coredns -n kube-system --timeout=60s
+
+echo "CoreDNS configured for internal resolution of fuhriman.org and www.fuhriman.org to $INGRESS_IP"
 
 echo "=== k3s and ArgoCD installation complete ==="
 echo "ArgoCD admin password:"
