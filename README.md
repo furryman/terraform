@@ -13,10 +13,11 @@ This repository contains Terraform configuration to deploy a lightweight k3s Kub
 │  │  │            Public Subnet                │    │    │
 │  │  │                                         │    │    │
 │  │  │  ┌───────────────────────────────────┐  │    │    │
-│  │  │  │  EC2 t3.micro (k3s)               │  │    │    │
+│  │  │  │  EC2 t3.small (k3s)               │  │    │    │
 │  │  │  │  - ArgoCD (:30443)                │  │    │    │
 │  │  │  │  - App-of-Apps (GitOps)           │  │    │    │
 │  │  │  │  - fuhriman-website               │  │    │    │
+│  │  │  │  - cert-manager + ingress-nginx   │  │    │    │
 │  │  │  └───────────────────────────────────┘  │    │    │
 │  │  └─────────────────────────────────────────┘    │    │
 │  └─────────────────────────────────────────────────┘    │
@@ -134,7 +135,7 @@ terraform/
 |----------|-------------|---------|
 | `aws_region` | AWS region | `us-west-2` |
 | `cluster_name` | Name prefix for resources | `fuhriman-k3s` |
-| `instance_type` | EC2 instance type | `t3.micro` |
+| `instance_type` | EC2 instance type | `t3.small` |
 | `volume_size` | Root EBS volume size (GB) | `20` |
 | `ssh_public_key` | SSH public key content | *required* |
 | `allowed_ssh_cidrs` | CIDRs for SSH/API access | `["0.0.0.0/0"]` |
@@ -149,7 +150,10 @@ terraform/
 | `instance_public_ip` | Public IP of the k3s instance |
 | `ssh_command` | SSH command to connect |
 | `kubeconfig_command` | Command to retrieve kubeconfig |
+| `kubeconfig_setup` | Detailed kubectl setup instructions |
 | `argocd_url` | URL to access ArgoCD UI |
+| `argocd_password_command` | Command to get ArgoCD password |
+| `website_urls` | Production website URLs |
 
 ## Access ArgoCD UI
 
@@ -162,11 +166,72 @@ ssh ec2-user@<instance-ip> "sudo kubectl -n argocd get secret argocd-initial-adm
 # Password: (from command above)
 ```
 
+## Certificate Management & DNS Configuration
+
+### Automated Setup
+
+The deployment automatically configures:
+
+1. **CoreDNS Split-Horizon DNS** - Resolves `fuhriman.org` and `www.fuhriman.org` to the internal ingress-nginx ClusterIP when queried from within the cluster. This solves the hairpin NAT problem for ACME HTTP-01 certificate validation.
+
+2. **Cert-Manager Configuration** - Disables internal self-checks that would fail due to hairpin NAT:
+   - `CERT_MANAGER_HTTP01_SELF_CHECK_ENABLED=false`
+   - `CERT_MANAGER_HTTP01_SELF_CHECK_NAMESERVERS=8.8.8.8:53,1.1.1.1:53`
+
+3. **Ingress SSL Configuration** - Sets `nginx.ingress.kubernetes.io/ssl-redirect="false"` to allow HTTP-01 ACME challenges while still enforcing HTTPS for regular traffic.
+
+### DNS Setup Required
+
+After deployment, configure DNS records in your domain registrar:
+
+```
+Type: A
+Host: @
+Value: <instance-public-ip>
+
+Type: CNAME
+Host: www
+Value: fuhriman.org
+```
+
+### Certificate Auto-Renewal
+
+Let's Encrypt certificates are automatically managed by cert-manager:
+- **Issued**: On first deployment after DNS propagation
+- **Valid**: 90 days
+- **Auto-renewal**: ~30 days before expiration
+- **Domains**: fuhriman.org, www.fuhriman.org
+
+### Troubleshooting Certificates
+
+If certificates fail to issue:
+
+```bash
+# Check certificate status
+kubectl get certificate -n default
+
+# Check certificate details
+kubectl describe certificate fuhriman-tls -n default
+
+# Check ACME challenges
+kubectl get challenges -n default
+
+# View cert-manager logs
+kubectl logs -n cert-manager deployment/cert-manager --tail=50
+```
+
+Common issues:
+- **DNS not propagated**: Wait 5-10 minutes after setting DNS records
+- **Challenge ingresses not created**: Check ArgoCD sync status
+- **403 errors**: Verify CoreDNS configuration includes internal IP mappings
+
 ## Cost Estimate
 
 | Component | Free Tier | After Free Tier |
 |-----------|-----------|-----------------|
-| EC2 t3.micro | $0 (750 hrs/mo) | ~$8.50/mo |
+| EC2 t3.small (2GB RAM) | $0 (750 hrs/mo)* | ~$17/mo |
 | EBS 20GB gp3 | $0 (30GB free) | ~$1.60/mo |
 | Public IPv4 | ~$3.65/mo | ~$3.65/mo |
-| **Total** | **~$4/mo** | **~$14/mo** |
+| **Total** | **~$4/mo*** | **~$22/mo** |
+
+*Note: Free tier applies to t3.micro only. t3.small is not eligible for free tier.
