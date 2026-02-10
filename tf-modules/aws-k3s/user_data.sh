@@ -13,6 +13,9 @@ until ping -c1 google.com &>/dev/null; do
   sleep 2
 done
 
+# Install iptables (not included in Amazon Linux 2023 by default)
+dnf install -y iptables-nft
+
 # Get instance public IP for TLS SAN
 TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
@@ -88,14 +91,28 @@ helm install argocd-apps argo/argocd-apps \
 
 rm -f /tmp/argocd-apps-values.yaml
 
-# iptables hairpin NAT fix: redirect pod traffic destined for the public IP
-# back to the private IP so it stays local instead of hitting the VPC router
-PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
-  http://169.254.169.254/latest/meta-data/local-ipv4)
+# Hairpin NAT fix: pods can't reach the instance's own public IP because the
+# VPC router won't loop packets back. We wait for ingress-nginx (deployed by
+# ArgoCD) then jump pod-CIDR traffic destined for the public IP directly into
+# kube-proxy's KUBE-EXT chains, which DNAT to the ingress-nginx pod.
+echo "Waiting for ingress-nginx to be deployed by ArgoCD..."
+until /usr/local/bin/kubectl get svc -n ingress-nginx ingress-nginx-controller &>/dev/null; do
+  sleep 5
+done
 
-echo "Configuring iptables hairpin NAT fix (public=$PUBLIC_IP, private=$PRIVATE_IP)..."
-iptables -t nat -A PREROUTING -s 10.42.0.0/16 -d "$PUBLIC_IP" -j DNAT --to-destination "$PRIVATE_IP"
-iptables -t nat -A OUTPUT -s 10.42.0.0/16 -d "$PUBLIC_IP" -j DNAT --to-destination "$PRIVATE_IP"
+# Wait for kube-proxy to create LoadBalancer iptables rules (lags behind service creation)
+echo "Waiting for kube-proxy LoadBalancer rules..."
+until iptables -t nat -L KUBE-SERVICES -n 2>/dev/null | grep -q "ingress-nginx-controller:http loadbalancer"; do
+  sleep 2
+done
+
+# Discover kube-proxy's KUBE-EXT chain names for the LoadBalancer service
+HTTP_CHAIN=$(iptables -t nat -L KUBE-SERVICES -n | grep "ingress-nginx-controller:http loadbalancer" | awk '{print $1}')
+HTTPS_CHAIN=$(iptables -t nat -L KUBE-SERVICES -n | grep "ingress-nginx-controller:https loadbalancer" | awk '{print $1}')
+
+echo "Configuring hairpin NAT fix (public=$PUBLIC_IP, http=$HTTP_CHAIN, https=$HTTPS_CHAIN)..."
+iptables -t nat -A PREROUTING -s 10.42.0.0/16 -d "$PUBLIC_IP" -p tcp --dport 80 -j "$HTTP_CHAIN"
+iptables -t nat -A PREROUTING -s 10.42.0.0/16 -d "$PUBLIC_IP" -p tcp --dport 443 -j "$HTTPS_CHAIN"
 
 echo "=== k3s and ArgoCD installation complete ==="
 echo "ArgoCD admin password:"
