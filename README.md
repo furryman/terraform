@@ -5,27 +5,33 @@ This repository contains Terraform configuration to deploy a lightweight k3s Kub
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      AWS Cloud                          │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │                    VPC                          │    │
-│  │  ┌─────────────────────────────────────────┐    │    │
-│  │  │            Public Subnet                │    │    │
-│  │  │                                         │    │    │
-│  │  │  ┌───────────────────────────────────┐  │    │    │
-│  │  │  │  EC2 t3.small (k3s)               │  │    │    │
-│  │  │  │  - ArgoCD (:30443)                │  │    │    │
-│  │  │  │  - App-of-Apps (GitOps)           │  │    │    │
-│  │  │  │  - fuhriman-website               │  │    │    │
-│  │  │  │  - cert-manager + ingress-nginx   │  │    │    │
-│  │  │  └───────────────────────────────────┘  │    │    │
-│  │  └─────────────────────────────────────────┘    │    │
-│  └─────────────────────────────────────────────────┘    │
-│                                                         │
-│  ┌─────────────────────────┐                            │
-│  │  AWS Budget ($25/mo)    │                            │
-│  └─────────────────────────┘                            │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                AWS Cloud                                    │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                          VPC (10.0.0.0/16)                           │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐  │  │
+│  │  │                     Public Subnet (10.0.1.0/24)                │  │  │
+│  │  │                                                                │  │  │
+│  │  │  ┌──────────────────────────────────────────────────────────┐  │  │  │
+│  │  │  │  EC2 t3.small (k3s)                                     │  │  │  │
+│  │  │  │                                                         │  │  │  │
+│  │  │  │  ┌─────────────┐ ┌─────────────┐ ┌──────────────────┐  │  │  │  │
+│  │  │  │  │cert-manager │ │ingress-nginx│ │fuhriman-website  │  │  │  │  │
+│  │  │  │  │(Let's Enc.) │ │(ServiceLB)  │ │(Next.js)         │  │  │  │  │
+│  │  │  │  └─────────────┘ └─────────────┘ └──────────────────┘  │  │  │  │
+│  │  │  │                                                         │  │  │  │
+│  │  │  │  ┌─────────────┐ ┌────────────────────────────────────┐ │  │  │  │
+│  │  │  │  │   ArgoCD    │ │iptables: hairpin NAT fix           │ │  │  │  │
+│  │  │  │  │  (:30443)   │ │(pod CIDR → kube-proxy KUBE-EXT)   │ │  │  │  │
+│  │  │  │  └─────────────┘ └────────────────────────────────────┘ │  │  │  │
+│  │  │  └──────────────────────────────────────────────────────────┘  │  │  │
+│  │  └─────────────────────────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│  ┌─────────────────────────┐                                                │
+│  │  AWS Budget ($25/mo)    │                                                │
+│  └─────────────────────────┘                                                │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
@@ -119,7 +125,7 @@ kubectl get nodes
 terraform/
 ├── tf-modules/
 │   ├── aws-vpc/        # VPC, subnets, Internet Gateway, route tables
-│   └── aws-k3s/        # EC2 instance, k3s, ArgoCD (via cloud-init)
+│   └── aws-k3s/        # EC2 instance, k3s, ArgoCD, hairpin NAT (via cloud-init)
 ├── main.tf             # Root module composition
 ├── variables.tf        # Input variables
 ├── outputs.tf          # Output values
@@ -164,25 +170,32 @@ ssh ec2-user@<instance-ip> "sudo kubectl -n argocd get secret argocd-initial-adm
 # Access at https://<instance-ip>:30443
 # Username: admin
 # Password: (from command above)
+# Note: Accept the self-signed certificate warning in your browser
 ```
 
-## Certificate Management & DNS Configuration
+## Hairpin NAT Fix
 
-### Automated Setup
+AWS VPC doesn't support hairpin NAT — when a pod inside the cluster tries to reach the instance's own public IP, the VPC router won't loop the packet back to the same host. This breaks cert-manager HTTP-01 self-checks and any in-cluster request to `fuhriman.org`.
 
-The deployment automatically configures:
+### How it works
 
-1. **CoreDNS Split-Horizon DNS** - Resolves `fuhriman.org` and `www.fuhriman.org` to the internal ingress-nginx ClusterIP when queried from within the cluster. This solves the hairpin NAT problem for ACME HTTP-01 certificate validation.
+The `user_data.sh` script (run during cloud-init) installs `iptables-nft` and, after ArgoCD deploys ingress-nginx, discovers kube-proxy's KUBE-EXT chain names for the LoadBalancer service. It then adds iptables rules that jump pod CIDR (`10.42.0.0/16`) traffic destined for the public IP directly into those chains, piggy-backing on kube-proxy's existing DNAT-to-pod routing.
 
-2. **Cert-Manager Configuration** - Disables internal self-checks that would fail due to hairpin NAT:
-   - `CERT_MANAGER_HTTP01_SELF_CHECK_ENABLED=false`
-   - `CERT_MANAGER_HTTP01_SELF_CHECK_NAMESERVERS=8.8.8.8:53,1.1.1.1:53`
+```
+Pod (10.42.0.x) → public IP:80
+  → PREROUTING: matches pod CIDR + public IP
+  → jumps to KUBE-EXT chain
+  → kube-proxy DNATs to ingress-nginx pod
+  → response returns normally
+```
 
-3. **Ingress SSL Configuration** - Sets `nginx.ingress.kubernetes.io/ssl-redirect="false"` to allow HTTP-01 ACME challenges while still enforcing HTTPS for regular traffic.
+### Why not simple DNAT?
 
-### DNS Setup Required
+iptables DNAT is a terminating target — once it fires, the packet exits the chain. A naive `DNAT --to-destination <private-ip>` would bypass kube-proxy's service routing entirely, landing on port 80 with no listener. Jumping into kube-proxy's own chains ensures the packet follows the same path as external traffic.
 
-After deployment, configure DNS records in your domain registrar:
+## DNS Setup
+
+After deployment, configure DNS records in your domain registrar (Squarespace):
 
 ```
 Type: A
@@ -194,13 +207,14 @@ Host: www
 Value: fuhriman.org
 ```
 
-### Certificate Auto-Renewal
+## Certificate Management
 
 Let's Encrypt certificates are automatically managed by cert-manager:
 - **Issued**: On first deployment after DNS propagation
 - **Valid**: 90 days
 - **Auto-renewal**: ~30 days before expiration
 - **Domains**: fuhriman.org, www.fuhriman.org
+- **Challenge type**: HTTP-01 (hairpin NAT fix enables in-cluster self-check)
 
 ### Troubleshooting Certificates
 
@@ -218,12 +232,15 @@ kubectl get challenges -n default
 
 # View cert-manager logs
 kubectl logs -n cert-manager deployment/cert-manager --tail=50
+
+# Verify hairpin NAT rules are in place
+sudo iptables -t nat -L PREROUTING -n | grep KUBE-EXT
 ```
 
 Common issues:
 - **DNS not propagated**: Wait 5-10 minutes after setting DNS records
 - **Challenge ingresses not created**: Check ArgoCD sync status
-- **403 errors**: Verify CoreDNS configuration includes internal IP mappings
+- **Hairpin NAT rules missing**: Check `/var/log/k3s-init.log` for errors; ensure `iptables-nft` was installed
 
 ## Cost Estimate
 

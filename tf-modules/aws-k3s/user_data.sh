@@ -54,8 +54,6 @@ helm install argocd argo/argo-cd \
   --version "${argocd_chart_version}" \
   --set server.service.type=NodePort \
   --set server.service.nodePortHttps=30443 \
-  --set 'server.extraArgs[0]=--insecure' \
-  --set configs.params."server\.insecure"=true \
   --wait --timeout 300s
 
 # Wait for ArgoCD server to be ready
