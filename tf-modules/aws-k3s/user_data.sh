@@ -88,41 +88,14 @@ helm install argocd-apps argo/argocd-apps \
 
 rm -f /tmp/argocd-apps-values.yaml
 
-# Wait for ingress-nginx to be deployed by ArgoCD
-echo "Waiting for ingress-nginx to be deployed..."
-until /usr/local/bin/kubectl get namespace ingress-nginx &>/dev/null; do
-  echo "Waiting for ingress-nginx namespace..."
-  sleep 5
-done
+# iptables hairpin NAT fix: redirect pod traffic destined for the public IP
+# back to the private IP so it stays local instead of hitting the VPC router
+PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/local-ipv4)
 
-echo "Waiting for ingress-nginx service..."
-until /usr/local/bin/kubectl get svc -n ingress-nginx ingress-nginx-controller &>/dev/null; do
-  sleep 5
-done
-
-# Wait for service to have ClusterIP assigned
-until INGRESS_IP=$(/usr/local/bin/kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.clusterIP}' 2>/dev/null) && [ -n "$INGRESS_IP" ]; do
-  echo "Waiting for ingress-nginx ClusterIP..."
-  sleep 5
-done
-
-echo "Ingress-nginx ClusterIP: $INGRESS_IP"
-
-# Configure CoreDNS for split-horizon DNS (hairpin NAT workaround)
-echo "Configuring CoreDNS for internal DNS resolution..."
-/usr/local/bin/kubectl get configmap coredns -n kube-system -o yaml > /tmp/coredns-backup.yaml
-
-# Patch CoreDNS to add custom DNS entries
-/usr/local/bin/kubectl get configmap coredns -n kube-system -o yaml | \
-  awk -v ip="$INGRESS_IP" '/NodeHosts: \|/{print; print "    " ip " fuhriman.org"; print "    " ip " www.fuhriman.org"; next}1' | \
-  /usr/local/bin/kubectl apply -f -
-
-# Restart CoreDNS to pick up changes
-echo "Restarting CoreDNS..."
-/usr/local/bin/kubectl rollout restart deployment coredns -n kube-system
-/usr/local/bin/kubectl rollout status deployment coredns -n kube-system --timeout=60s
-
-echo "CoreDNS configured for internal resolution of fuhriman.org and www.fuhriman.org to $INGRESS_IP"
+echo "Configuring iptables hairpin NAT fix (public=$PUBLIC_IP, private=$PRIVATE_IP)..."
+iptables -t nat -A PREROUTING -s 10.42.0.0/16 -d "$PUBLIC_IP" -j DNAT --to-destination "$PRIVATE_IP"
+iptables -t nat -A OUTPUT -s 10.42.0.0/16 -d "$PUBLIC_IP" -j DNAT --to-destination "$PRIVATE_IP"
 
 echo "=== k3s and ArgoCD installation complete ==="
 echo "ArgoCD admin password:"
