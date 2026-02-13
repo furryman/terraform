@@ -8,3 +8,5 @@
 # Terragrunt
 .terragrunt-cache
 .terraform.lock.hcl
+
+*.tfvars
