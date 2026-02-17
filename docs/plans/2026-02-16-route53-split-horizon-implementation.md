@@ -227,33 +227,21 @@ git commit -m "feat: add Elastic IP, update outputs to use EIP"
 
 ---
 
-### Task 3: Add IAM policy for cert-manager Route53 access
+### Task 3: Add IAM policy for cert-manager Route53 access (root module)
+
+> IAM policy lives in the root module to avoid a circular dependency between `k3s` and `dns` modules.
 
 **Files:**
-- Modify: `tf-modules/aws-k3s/main.tf`
-- Modify: `tf-modules/aws-k3s/variables.tf`
+- Modify: `main.tf`
 
-**Step 1: Add `route53_zone_id` variable to `tf-modules/aws-k3s/variables.tf`**
+**Step 1: Add IAM policy and attachment to root `main.tf`**
 
-Add at the end of the file:
-
-```hcl
-variable "route53_zone_id" {
-  description = "Route53 public hosted zone ID for cert-manager DNS-01 challenges"
-  type        = string
-  default     = ""
-}
-```
-
-**Step 2: Add IAM policy and attachment to `tf-modules/aws-k3s/main.tf`**
-
-Add after the `aws_iam_role_policy_attachment.ssm` resource (after line 112):
+Add after the `dns` module block:
 
 ```hcl
 # Route53 policy for cert-manager DNS-01 challenges
+# Lives in root module to avoid circular dependency (k3s <-> dns)
 resource "aws_iam_policy" "cert_manager_route53" {
-  count = var.route53_zone_id != "" ? 1 : 0
-
   name        = "${var.cluster_name}-cert-manager-route53"
   description = "Allows cert-manager to manage Route53 DNS-01 challenges"
 
@@ -270,7 +258,7 @@ resource "aws_iam_policy" "cert_manager_route53" {
         Sid      = "CertManagerRoute53RecordSets"
         Effect   = "Allow"
         Action   = "route53:ChangeResourceRecordSets"
-        Resource = "arn:aws:route53:::hostedzone/${var.route53_zone_id}"
+        Resource = "arn:aws:route53:::hostedzone/${module.dns.public_zone_id}"
       },
       {
         Sid    = "CertManagerRoute53ListZones"
@@ -284,21 +272,30 @@ resource "aws_iam_policy" "cert_manager_route53" {
     ]
   })
 
-  tags = var.tags
+  tags = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "cert_manager_route53" {
-  count = var.route53_zone_id != "" ? 1 : 0
+  policy_arn = aws_iam_policy.cert_manager_route53.arn
+  role       = module.k3s.iam_role_name
+}
+```
 
-  policy_arn = aws_iam_policy.cert_manager_route53[0].arn
-  role       = aws_iam_role.k3s.name
+**Step 2: Export IAM role name from `aws-k3s` module**
+
+Add to `tf-modules/aws-k3s/outputs.tf`:
+
+```hcl
+output "iam_role_name" {
+  description = "IAM role name for the k3s instance"
+  value       = aws_iam_role.k3s.name
 }
 ```
 
 **Step 3: Commit**
 
 ```bash
-git add tf-modules/aws-k3s/main.tf tf-modules/aws-k3s/variables.tf
+git add main.tf tf-modules/aws-k3s/outputs.tf
 git commit -m "feat: add IAM policy for cert-manager Route53 DNS-01"
 ```
 
@@ -465,7 +462,6 @@ module "k3s" {
   allowed_ssh_cidrs    = var.allowed_ssh_cidrs
   app_of_apps_repo_url = var.app_of_apps_repo_url
   argocd_chart_version = var.argocd_chart_version
-  route53_zone_id      = module.dns.public_zone_id
   tags                 = local.tags
 
   depends_on = [module.vpc]
@@ -480,8 +476,6 @@ module "dns" {
   instance_public_ip  = module.k3s.eip_public_ip
   instance_private_ip = module.k3s.instance_private_ip
   tags                = local.tags
-
-  depends_on = [module.k3s]
 }
 ```
 
@@ -575,10 +569,6 @@ Expected: Plan shows new resources to create:
 
 And changes to:
 - Security group (remove NodePort 30443 rule)
-
-Note: There is a circular dependency between `k3s` and `dns` modules (dns needs k3s EIP, k3s needs dns zone_id for IAM). This is resolved by the `count` guard on the IAM policy — on first apply, `route53_zone_id` will be empty string, so the IAM resources are skipped. After `dns` module creates the zone, a second apply (or use of `-target`) will create the IAM policy. Alternatively, we can break the cycle by moving IAM to the dns module or root module.
-
-**If circular dependency is an issue**, restructure Task 3 to put the IAM policy in the root module instead, referencing `module.dns.public_zone_id` directly. This avoids passing the zone_id into k3s at all.
 
 **Step 3: Commit any fixes**
 
