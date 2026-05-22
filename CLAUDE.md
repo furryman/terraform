@@ -37,7 +37,7 @@ aws-vpc → aws-k3s
 ```
 
 - **aws-vpc** — VPC (10.0.0.0/16) with one public subnet, single AZ. No NAT Gateway (cost optimization).
-- **aws-k3s** — Single t3.micro EC2 instance running k3s (self-managed Kubernetes). ArgoCD (Helm chart v5.55.0) and App-of-Apps pattern installed via cloud-init user_data, pointing to `https://github.com/furryman/argocd-app-of-apps.git` with auto-sync, prune, and self-heal.
+- **aws-k3s** — Single t3.small EC2 instance running k3s (self-managed Kubernetes). ArgoCD (Helm chart v5.55.0) and App-of-Apps pattern installed via cloud-init user_data, pointing to `https://github.com/furryman/argocd-app-of-apps.git` with auto-sync, prune, and self-heal.
 
 All modules live under `tf-modules/`. Root module (`main.tf`) wires them together, passing VPC outputs into the k3s module. A `budget.tf` file creates a $25/mo AWS budget alert for cost governance.
 
@@ -57,7 +57,7 @@ Only the AWS provider is configured in `providers.tf`. Default resource tags (En
 
 - Terraform >= 1.14.0 required
 - AWS provider >= 5.0
-- Instance is t3.micro (1GB RAM, free tier eligible) — k3s + ArgoCD use ~700MB, leaving ~300MB for workloads
+- Instance is t3.small (2GB RAM, not free-tier eligible) — k3s + ArgoCD use ~700MB, leaving ~1.3GB for workloads
 - ArgoCD runs in insecure mode via NodePort on port 30443
 - SSH public key required via `ssh_public_key` variable (no default)
 - Budget notification email required via `budget_notification_email` variable
