@@ -24,11 +24,6 @@ variable "volume_size" {
   default     = 20
 }
 
-variable "allowed_admin_cidrs" {
-  description = "CIDR blocks allowed for SSH (22), k3s API (6443), and ArgoCD UI (30443)"
-  type        = list(string)
-}
-
 variable "app_of_apps_repo_url" {
   description = "Git repository URL for the ArgoCD app-of-apps chart"
   type        = string
@@ -37,7 +32,8 @@ variable "app_of_apps_repo_url" {
 variable "argocd_chart_version" {
   description = "ArgoCD Helm chart version"
   type        = string
-  default     = "5.55.0"
+  # Default matches the root variable; root forwards its own value.
+  default = "9.5.15"
 }
 
 variable "tags" {

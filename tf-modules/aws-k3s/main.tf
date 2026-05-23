@@ -38,13 +38,8 @@ resource "aws_security_group" "k3s" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  ingress {
-    description = "ArgoCD NodePort"
-    from_port   = 30443
-    to_port     = 30443
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_admin_cidrs
-  }
+  # ArgoCD NodePort 30443 ingress removed in Phase 5 — UI now lives behind
+  # the public Gateway at https://argocd.fuhriman.org with a proper TLS cert.
 
   egress {
     from_port   = 0
@@ -118,6 +113,12 @@ resource "aws_instance" "k3s" {
     app_of_apps_repo_url = var.app_of_apps_repo_url
     argocd_chart_version = var.argocd_chart_version
   }))
+
+  # user_data runs only at first boot; updating the script without replacing
+  # the instance would leave the new script un-executed. Force replacement on
+  # change so the new bootstrap actually takes effect. Phase 7's Packer AMI
+  # will move most of this work out of user_data entirely.
+  user_data_replace_on_change = true
 
   tags = merge(var.tags, {
     Name = "${var.cluster_name}-k3s"

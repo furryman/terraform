@@ -59,11 +59,6 @@ variable "volume_size" {
   }
 }
 
-variable "allowed_admin_cidrs" {
-  description = "CIDR blocks allowed for SSH (22), k3s API (6443), and ArgoCD UI (30443). No default — must be set in terraform.tfvars to avoid 0.0.0.0/0 exposure."
-  type        = list(string)
-}
-
 variable "app_of_apps_repo_url" {
   description = "Git repository URL for the app-of-apps chart"
   type        = string
@@ -73,7 +68,10 @@ variable "app_of_apps_repo_url" {
 variable "argocd_chart_version" {
   description = "ArgoCD Helm chart version"
   type        = string
-  default     = "5.55.0"
+  # Phase 5 bump: 5.55.0 (Dec 2023) → 9.5.15 (May 2025). 4-major-version
+  # jump; chart 9.x ships ArgoCD v3.x with refreshed UI, schema updates,
+  # and Gateway API-ready defaults.
+  default = "9.5.15"
 }
 
 variable "budget_notification_email" {

@@ -60,8 +60,8 @@ output "kubeconfig_retrieval_command" {
 }
 
 output "argocd_url" {
-  description = "URL to access the ArgoCD UI (current — Phase 5 moves this to https://argocd.fuhriman.org)"
-  value       = "https://${aws_instance.k3s.public_ip}:30443"
+  description = "URL to access the ArgoCD UI"
+  value       = "https://argocd.fuhriman.org"
 }
 
 output "argocd_password_command" {

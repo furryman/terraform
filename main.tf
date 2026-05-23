@@ -27,7 +27,6 @@ module "k3s" {
   subnet_id            = module.vpc.public_subnet_id
   instance_type        = var.instance_type
   volume_size          = var.volume_size
-  allowed_admin_cidrs  = var.allowed_admin_cidrs
   app_of_apps_repo_url = var.app_of_apps_repo_url
   argocd_chart_version = var.argocd_chart_version
   tags                 = local.tags

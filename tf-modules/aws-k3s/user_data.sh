@@ -13,13 +13,13 @@ until ping -c1 google.com &>/dev/null; do
   sleep 2
 done
 
-# Install iptables (not in AL2023 default) + ensure SSM Agent is present and
-# running. The AMI we pin ships ssm-agent preinstalled but disabled — explicitly
-# enable so admin access via `aws ssm start-session` works on first boot.
-dnf install -y iptables-nft amazon-ssm-agent
+# Ensure SSM Agent is installed and enabled (AL2023 ships it preinstalled but
+# disabled on some AMI variants — explicit enable so `aws ssm start-session`
+# works as the sole admin path).
+dnf install -y amazon-ssm-agent
 systemctl enable --now amazon-ssm-agent
 
-# Get instance public IP for TLS SAN
+# Get instance public IP for k3s TLS SAN
 TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
@@ -51,12 +51,14 @@ curl -sfL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | 
 helm repo add argo https://argoproj.github.io/argo-helm
 helm repo update
 
-# Install ArgoCD via Helm
+# Install ArgoCD via Helm.
+# --insecure: ArgoCD server listens on HTTP only; TLS terminates at the
+# Gateway (envoy-gateway-system/public) via an HTTPRoute. No NodePort —
+# external clients reach the UI through ingress on 443.
 helm install argocd argo/argo-cd \
   --namespace argocd \
   --version "${argocd_chart_version}" \
-  --set server.service.type=NodePort \
-  --set server.service.nodePortHttps=30443 \
+  --set 'configs.params.server\.insecure=true' \
   --wait --timeout 300s
 
 # Wait for ArgoCD server to be ready
@@ -92,31 +94,10 @@ helm install argocd-apps argo/argocd-apps \
 
 rm -f /tmp/argocd-apps-values.yaml
 
-# Hairpin NAT fix: pods can't reach the instance's own public IP because the
-# VPC router won't loop packets back. We wait for ingress-nginx (deployed by
-# ArgoCD) then jump pod-CIDR traffic destined for the public IP directly into
-# kube-proxy's KUBE-EXT chains, which DNAT to the ingress-nginx pod.
-echo "Waiting for ingress-nginx to be deployed by ArgoCD..."
-until /usr/local/bin/kubectl get svc -n ingress-nginx ingress-nginx-controller &>/dev/null; do
-  sleep 5
-done
-
-# Wait for kube-proxy to create LoadBalancer iptables rules (lags behind service creation)
-echo "Waiting for kube-proxy LoadBalancer rules..."
-until iptables -t nat -L KUBE-SERVICES -n 2>/dev/null | grep -q "ingress-nginx-controller:http loadbalancer"; do
-  sleep 2
-done
-
-# Discover kube-proxy's KUBE-EXT chain names for the LoadBalancer service
-HTTP_CHAIN=$(iptables -t nat -L KUBE-SERVICES -n | grep "ingress-nginx-controller:http loadbalancer" | awk '{print $1}')
-HTTPS_CHAIN=$(iptables -t nat -L KUBE-SERVICES -n | grep "ingress-nginx-controller:https loadbalancer" | awk '{print $1}')
-
-echo "Configuring hairpin NAT fix (public=$PUBLIC_IP, http=$HTTP_CHAIN, https=$HTTPS_CHAIN)..."
-iptables -t nat -A PREROUTING -s 10.42.0.0/16 -d "$PUBLIC_IP" -p tcp --dport 80 -j "$HTTP_CHAIN"
-iptables -t nat -A PREROUTING -s 10.42.0.0/16 -d "$PUBLIC_IP" -p tcp --dport 443 -j "$HTTPS_CHAIN"
-
 echo "=== k3s and ArgoCD installation complete ==="
-echo "ArgoCD admin password:"
+echo "ArgoCD admin password (retrieve later via:"
+echo "  KUBECONFIG=~/.kube/portfolio-config kubectl -n argocd get secret \\"
+echo "    argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d):"
 /usr/local/bin/kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d
+  -o jsonpath="{.data.password}" | base64 -d 2>/dev/null || echo "(not yet generated)"
 echo ""
