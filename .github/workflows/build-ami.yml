@@ -1,0 +1,139 @@
+name: Build k3s AMI
+
+# Triggers on:
+#   - push of a tag matching `packer-v*` (the canonical release path)
+#   - manual workflow_dispatch (for ad-hoc builds during development)
+#
+# Output: a new AMI tagged `ManagedBy=Packer`, `Cluster=fuhriman-k3s`, `Version=<sha>`.
+# After a successful run, the next `terraform apply` picks up the newest AMI
+# via the tag-filtered lookup in tf-modules/aws-k3s/main.tf.
+
+on:
+  push:
+    tags:
+      - 'packer-v*'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for ad-hoc build (logged in run summary)'
+        required: false
+        default: 'manual rebuild'
+
+permissions:
+  id-token: write   # Required for OIDC role assumption
+  contents: read
+
+env:
+  AWS_REGION: us-west-2
+
+jobs:
+  build:
+    name: Packer build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Need full history for git describe
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # IAM role provisioned in terraform/oidc.tf. Trust policy restricts to
+          # this repo (any ref) via the GitHub OIDC subject claim.
+          role-to-assume: arn:aws:iam::317369398303:role/github-actions-packer
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@v3
+        with:
+          version: latest
+
+      - name: Compute git SHA tag
+        id: vars
+        run: |
+          short_sha=$(git rev-parse --short HEAD)
+          echo "git_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Building AMI from commit ${short_sha}"
+
+      - name: Packer init
+        working-directory: packer
+        run: packer init .
+
+      - name: Packer validate
+        working-directory: packer
+        run: packer validate -var "git_sha=${{ steps.vars.outputs.git_sha }}" .
+
+      - name: Packer build
+        working-directory: packer
+        run: |
+          packer build \
+            -var "git_sha=${{ steps.vars.outputs.git_sha }}" \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            .
+
+      - name: Extract built AMI ID from manifest
+        id: ami
+        working-directory: packer
+        run: |
+          ami_id=$(jq -r '.builds[-1].artifact_id' packer-manifest.json | cut -d: -f2)
+          echo "ami_id=${ami_id}" >> "$GITHUB_OUTPUT"
+          echo "Built AMI: ${ami_id}"
+
+      - name: Job summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Build complete
+
+          - **AMI ID:** \`${{ steps.ami.outputs.ami_id }}\`
+          - **Git SHA:** \`${{ steps.vars.outputs.git_sha }}\`
+          - **Region:** ${{ env.AWS_REGION }}
+          - **Trigger:** ${{ github.event_name }}
+
+          Next: \`terraform apply\` will pick up this AMI via the tag-filtered lookup.
+          EOF
+
+      - name: Clean up old AMIs (retain 3 most recent)
+        run: |
+          set -euo pipefail
+          echo "=== Listing Packer-managed AMIs ==="
+          ami_ids=$(aws ec2 describe-images \
+            --owners self \
+            --filters "Name=tag:ManagedBy,Values=Packer" "Name=tag:Cluster,Values=fuhriman-k3s" \
+            --query 'sort_by(Images, &CreationDate)[*].ImageId' \
+            --output text)
+
+          # Convert to array and reverse (newest first)
+          read -ra ami_array <<< "${ami_ids}"
+          total=${#ami_array[@]}
+          echo "Found ${total} Packer AMIs"
+
+          if [ "${total}" -le 3 ]; then
+            echo "Only ${total} AMI(s); retention policy (keep 3) not violated. Skipping cleanup."
+            exit 0
+          fi
+
+          # Delete oldest (total - 3) AMIs
+          to_delete_count=$((total - 3))
+          echo "Deregistering ${to_delete_count} oldest AMI(s)"
+
+          for ((i=0; i<to_delete_count; i++)); do
+            ami="${ami_array[i]}"
+            echo "Processing ${ami}..."
+
+            # Capture snapshot IDs before deregistering the AMI
+            snapshot_ids=$(aws ec2 describe-images \
+              --image-ids "${ami}" \
+              --query 'Images[0].BlockDeviceMappings[].Ebs.SnapshotId' \
+              --output text)
+
+            aws ec2 deregister-image --image-id "${ami}"
+            echo "  Deregistered ${ami}"
+
+            for snap in ${snapshot_ids}; do
+              aws ec2 delete-snapshot --snapshot-id "${snap}"
+              echo "  Deleted snapshot ${snap}"
+            done
+          done

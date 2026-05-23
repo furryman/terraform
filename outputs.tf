@@ -52,3 +52,8 @@ output "route53_zone_id" {
   description = "Route53 hosted zone ID (used by ExternalDNS in-cluster to scope record management)"
   value       = module.dns.zone_id
 }
+
+output "github_actions_packer_role_arn" {
+  description = "IAM role ARN for GitHub Actions to assume via OIDC (Packer AMI builds)"
+  value       = aws_iam_role.github_actions_packer.arn
+}
