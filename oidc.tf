@@ -77,6 +77,7 @@ resource "aws_iam_role_policy" "github_actions_packer" {
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeSubnets",
           "ec2:DescribeVpcs",
+          "ec2:DescribeVolumes", # Packer cleanup queries this
 
           # AMI lifecycle
           "ec2:CreateImage",

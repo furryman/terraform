@@ -142,10 +142,10 @@ build {
       "set -euo pipefail",
       "echo '=== Waiting for cloud-init to complete ==='",
       "sudo cloud-init status --wait || true",
-      "echo '=== Updating base packages ==='",
-      "sudo dnf update -y --quiet",
+      # Skip `dnf update -y` — AL2023 has a long-standing curl-minimal /
+      # curl-full conflict that aborts the update. Just install what we need.
       "echo '=== Installing build-time dependencies ==='",
-      "sudo dnf install -y --quiet curl jq tar gzip ca-certificates",
+      "sudo dnf install -y --quiet jq tar gzip ca-certificates",
     ]
   }
 
