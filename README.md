@@ -5,32 +5,84 @@ AWS infrastructure for a k3s + ArgoCD + Gateway API portfolio cluster. Single t4
 ## Architecture
 
 ```text
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ AWS us-west-2                                                                │
-│ ┌──────────────────────────────────────────────────────────────────────────┐ │
-│ │ VPC 10.0.0.0/16 — Public subnet 10.0.1.0/24 (single AZ)                  │ │
-│ │                                                                          │ │
-│ │ ┌──────────────────────────────────────────────────────────────────────┐ │ │
-│ │ │ EC2 t4g.medium (k3s) — EIP 52.37.95.130 — Packer-built AMI           │ │ │
-│ │ │                                                                      │ │ │
-│ │ │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                  │ │ │
-│ │ │  │ cert-manager │ │envoy-gateway │ │ external-dns │                  │ │ │
-│ │ │  │ (LE HTTP-01) │ │ (Gateway API)│ │  (Route53)   │                  │ │ │
-│ │ │  └──────────────┘ └──────────────┘ └──────────────┘                  │ │ │
-│ │ │  ┌──────────────┐ ┌──────────────┐                                   │ │ │
-│ │ │  │   ArgoCD     │ │ fuhriman-    │                                   │ │ │
-│ │ │  │ (chart 9.x)  │ │ website      │                                   │ │ │
-│ │ │  └──────────────┘ └──────────────┘                                   │ │ │
-│ │ └──────────────────────────────────────────────────────────────────────┘ │ │
-│ └──────────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
-│ Route53 zone fuhriman.org   ──→  ExternalDNS in cluster writes records       │
-│ S3 terraform-state          ──→  native use_lockfile (no DynamoDB)           │
-│ DLM monthly snapshots × 3   ──→  rolling EBS rollback window                 │
-│ Budget alert $40/mo                                                          │
-│ IAM OIDC role (github-actions-packer) ──→ workflow builds AMIs               │
-└──────────────────────────────────────────────────────────────────────────────┘
+                Browser  ─── HTTPS ─── fuhriman.org · www · argocd.fuhriman.org
+                   │
+                   ▼
+              Squarespace (registrar, NS delegation only)
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ AWS us-west-2                                                                   │
+│                                                                                 │
+│   Route53 zone fuhriman.org  ──A──→  EIP 52.37.95.130                           │
+│           ▲                                  │                                  │
+│           │ records written by               ▼                                  │
+│           │ external-dns                ┌─────────────────────────────────────┐ │
+│           │                             │ VPC 10.0.0.0/16                     │ │
+│           │                             │ Public subnet 10.0.1.0/24 (1 AZ)    │ │
+│           │                             │                                     │ │
+│           │                             │  EC2 t4g.medium (Graviton ARM)      │ │
+│           │                             │  Packer-built AMI · IMDSv2 required │ │
+│           │                             │  ┌───────────────────────────────┐  │ │
+│           │                             │  │ k3s + klipper-lb              │  │ │
+│           │                             │  │  ┌─────────────────────────┐  │  │ │
+│           │                             │  │  │ Envoy Gateway "public"  │  │  │ │
+│           │                             │  │  │ :80 / :443  (TLS term)  │  │  │ │
+│           │                             │  │  │ cert: fuhriman-tls SAN  │  │  │ │
+│           │                             │  │  │  fuhriman.org · www     │  │  │ │
+│           │                             │  │  │  argocd.fuhriman.org    │  │  │ │
+│           │                             │  │  └───────────┬─────────────┘  │  │ │
+│           │                             │  │      ┌───────┴───────┐        │  │ │
+│           │                             │  │  HTTPRoute       HTTPRoute    │  │ │
+│           │                             │  │  fuhriman-       argocd-      │  │ │
+│           │                             │  │  website         server       │  │ │
+│           │                             │  │      ▼               ▼        │  │ │
+│           │                             │  │  ┌──────────┐  ┌──────────┐   │  │ │
+│           │                             │  │  │ Next.js  │  │ ArgoCD   │   │  │ │
+│           │                             │  │  │ (arm64)  │  │ 9.5.15   │   │  │ │
+│           │                             │  │  └──────────┘  └──────────┘   │  │ │
+│           │                             │  │                               │  │ │
+│           │                             │  │  cert-manager · external-dns  │  │ │
+│           │                             │  │  (LE HTTP-01)   (Route53)     │  │ │
+│           └─────────────────────────────│──┤                               │  │ │
+│                                         │  └───────────────────────────────┘  │ │
+│                                         └─────────────────────────────────────┘ │
+│                                                                                 │
+│   S3 terraform-state (use_lockfile, no DynamoDB)                                │
+│   DLM monthly EBS snapshots × 3                                                 │
+│   $40/mo Budget alert                                                           │
+│   IAM OIDC role: github-actions-packer  ──→  workflow builds AMIs               │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+A single shared Gateway in `envoy-gateway-system` is the inbound chokepoint: TLS terminates there with one multi-SAN Let's Encrypt cert, and every public hostname is an HTTPRoute attached to it. No `Ingress` resources anywhere — routing is Gateway API end to end. SSM Session Manager is the only admin path (no SSH; ports 22 and 6443 are not exposed).
+
+## GitOps Loop
+
+This repo provisions the AWS substrate. Everything in the cluster is managed by ArgoCD from three sibling repos:
+
+```text
+   terraform                          (this repo) — provisions VPC/EC2/Route53/S3/IAM
+       │
+       │  user_data.sh installs ArgoCD + the app-of-apps Application
+       ▼
+   ArgoCD (in-cluster)
+       │
+       │  reads parent chart
+       ▼
+   argocd-app-of-apps                 4 child Applications (cert-manager, envoy-gateway,
+       │                              external-dns, fuhriman-website) with sync-wave order
+       │  each Application points at a chart path in
+       ▼
+   eks-helm-charts                    cert-manager · envoy-gateway · external-dns · fuhriman-chart
+       │                              (vestigial name — deploy target is k3s, not EKS)
+       │  fuhriman-chart.image.tag bumped by CI from
+       ▼
+   fuhriman-website                   Next.js portfolio; GHA builds multi-arch image,
+                                      pushes Docker Hub, commits tag bump to eks-helm-charts
+```
+
+Changing anything in the cluster is a git commit to one of the three sibling repos — never `kubectl apply`.
 
 ## Prerequisites
 

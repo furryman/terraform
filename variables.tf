@@ -40,7 +40,7 @@ variable "vpc_cidr" {
 variable "instance_type" {
   description = "EC2 instance type for the k3s node"
   type        = string
-  default     = "t4g.medium" # Graviton ARM, 4GB RAM — Phase 3.5 sized up from t3.small (2GB) to fit Envoy Gateway + ArgoCD chart 9.x.
+  default     = "t4g.medium" # Graviton ARM, 4GB RAM — sized to fit Envoy Gateway + ArgoCD chart 9.x.
 
   validation {
     condition     = can(regex("^(t3|t3a|t4g)\\.(small|medium|large)$", var.instance_type))
@@ -66,12 +66,9 @@ variable "app_of_apps_repo_url" {
 }
 
 variable "argocd_chart_version" {
-  description = "ArgoCD Helm chart version"
+  description = "ArgoCD Helm chart version (9.x ships ArgoCD v3 with Gateway API-ready defaults)"
   type        = string
-  # Phase 5 bump: 5.55.0 (Dec 2023) → 9.5.15 (May 2025). 4-major-version
-  # jump; chart 9.x ships ArgoCD v3.x with refreshed UI, schema updates,
-  # and Gateway API-ready defaults.
-  default = "9.5.15"
+  default     = "9.5.15"
 }
 
 variable "budget_notification_email" {

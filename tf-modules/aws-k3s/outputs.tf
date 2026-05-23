@@ -13,11 +13,6 @@ output "instance_private_ip" {
   value       = aws_instance.k3s.private_ip
 }
 
-output "instance_public_dns" {
-  description = "The public DNS of the k3s instance"
-  value       = aws_instance.k3s.public_dns
-}
-
 output "security_group_id" {
   description = "Security group ID for the k3s instance"
   value       = aws_security_group.k3s.id
@@ -69,13 +64,3 @@ output "argocd_password_command" {
   value       = "kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 }
 
-output "website_urls" {
-  description = "URLs for the deployed website"
-  value       = <<-EOT
-    Production URLs:
-    - https://fuhriman.org
-    - https://www.fuhriman.org
-
-    Note: Ensure DNS A/CNAME records point to ${aws_instance.k3s.public_ip}
-  EOT
-}
