@@ -37,3 +37,13 @@ output "argocd_password_command" {
   description = "Retrieve the initial ArgoCD admin password (requires SSM tunnel + KUBECONFIG)"
   value       = module.k3s.argocd_password_command
 }
+
+output "nameservers" {
+  description = "Route53 NS records — paste these into the Squarespace registrar to delegate the domain. Cutover is irreversible-for-hours; lower existing record TTLs to 300s 24hrs before."
+  value       = module.dns.name_servers
+}
+
+output "route53_zone_id" {
+  description = "Route53 hosted zone ID (used by ExternalDNS in-cluster to scope record management)"
+  value       = module.dns.zone_id
+}

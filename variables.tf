@@ -85,3 +85,9 @@ variable "budget_notification_email" {
     error_message = "Must be a valid email address."
   }
 }
+
+variable "domain_name" {
+  description = "Domain name for the Route53 hosted zone"
+  type        = string
+  default     = "fuhriman.org"
+}

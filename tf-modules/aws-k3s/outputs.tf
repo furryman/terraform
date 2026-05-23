@@ -18,6 +18,11 @@ output "security_group_id" {
   value       = aws_security_group.k3s.id
 }
 
+output "iam_role_name" {
+  description = "IAM role name attached to the k3s instance — for additional policy attachments (e.g., ExternalDNS Route53 access)"
+  value       = aws_iam_role.k3s.name
+}
+
 output "ssm_session_command" {
   description = "Open an interactive shell on the instance via SSM Session Manager"
   value       = "aws ssm start-session --target ${aws_instance.k3s.id} --profile portfolio --region us-west-2"
