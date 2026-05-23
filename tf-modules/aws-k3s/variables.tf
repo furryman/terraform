@@ -24,11 +24,6 @@ variable "volume_size" {
   default     = 20
 }
 
-variable "ssh_public_key" {
-  description = "SSH public key for EC2 access"
-  type        = string
-}
-
 variable "allowed_admin_cidrs" {
   description = "CIDR blocks allowed for SSH (22), k3s API (6443), and ArgoCD UI (30443)"
   type        = list(string)

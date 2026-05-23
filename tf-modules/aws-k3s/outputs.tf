@@ -4,7 +4,7 @@ output "instance_id" {
 }
 
 output "instance_public_ip" {
-  description = "The public IP of the k3s instance"
+  description = "The public IP of the k3s instance (still ephemeral until EIP lands in Phase 3)"
   value       = aws_instance.k3s.public_ip
 }
 
@@ -18,34 +18,45 @@ output "security_group_id" {
   value       = aws_security_group.k3s.id
 }
 
-output "ssh_command" {
-  description = "SSH command to connect to the k3s instance"
-  value       = "ssh ec2-user@${aws_instance.k3s.public_ip}"
+output "ssm_session_command" {
+  description = "Open an interactive shell on the instance via SSM Session Manager"
+  value       = "aws ssm start-session --target ${aws_instance.k3s.id} --profile portfolio --region us-west-2"
 }
 
-output "kubeconfig_command" {
-  description = "Command to get kubeconfig from the k3s instance"
-  value       = "scp ec2-user@${aws_instance.k3s.public_ip}:/etc/rancher/k3s/k3s.yaml ./k3s-kubeconfig.yaml && sed -i 's/127.0.0.1/${aws_instance.k3s.public_ip}/g' ./k3s-kubeconfig.yaml && export KUBECONFIG=./k3s-kubeconfig.yaml"
+output "ssm_port_forward_kubectl_command" {
+  description = "Open an SSM port-forward tunnel for kubectl. Run this in a dedicated terminal; then in another: KUBECONFIG=~/.kube/portfolio-config kubectl get nodes"
+  value       = "aws ssm start-session --target ${aws_instance.k3s.id} --document-name AWS-StartPortForwardingSession --parameters portNumber=6443,localPortNumber=6443 --profile portfolio --region us-west-2"
 }
 
-output "kubeconfig_setup" {
-  description = "Steps to configure kubectl access"
+output "kubeconfig_retrieval_command" {
+  description = "One-time kubeconfig fetch via SSM (k3s admin creds — handle with care). Saves to ~/.kube/portfolio-config; server stays at 127.0.0.1:6443 (works as-is via the SSM tunnel)."
   value       = <<-EOT
-    1. Download kubeconfig: scp ec2-user@${aws_instance.k3s.public_ip}:/etc/rancher/k3s/k3s.yaml ./k3s-kubeconfig.yaml
-    2. Update server IP: sed -i 's/127.0.0.1/${aws_instance.k3s.public_ip}/g' ./k3s-kubeconfig.yaml
-    3. Add insecure skip (if needed): kubectl config set-cluster default --insecure-skip-tls-verify=true --kubeconfig=./k3s-kubeconfig.yaml
-    4. Set KUBECONFIG: export KUBECONFIG=./k3s-kubeconfig.yaml
+    mkdir -p ~/.kube && \
+    CMD_ID=$(aws ssm send-command \
+      --instance-ids ${aws_instance.k3s.id} \
+      --document-name AWS-RunShellScript \
+      --parameters 'commands=["sudo cat /etc/rancher/k3s/k3s.yaml"]' \
+      --profile portfolio --region us-west-2 \
+      --query 'Command.CommandId' --output text) && \
+    sleep 5 && \
+    aws ssm get-command-invocation \
+      --command-id $CMD_ID \
+      --instance-id ${aws_instance.k3s.id} \
+      --profile portfolio --region us-west-2 \
+      --query 'StandardOutputContent' --output text > ~/.kube/portfolio-config && \
+    chmod 600 ~/.kube/portfolio-config && \
+    echo "kubeconfig saved. In one terminal: $(terraform output -raw ssm_port_forward_kubectl_command). In another: KUBECONFIG=~/.kube/portfolio-config kubectl get nodes"
   EOT
 }
 
 output "argocd_url" {
-  description = "URL to access the ArgoCD UI"
+  description = "URL to access the ArgoCD UI (current — Phase 5 moves this to https://argocd.fuhriman.org)"
   value       = "https://${aws_instance.k3s.public_ip}:30443"
 }
 
 output "argocd_password_command" {
-  description = "Command to retrieve ArgoCD admin password"
-  value       = "ssh ec2-user@${aws_instance.k3s.public_ip} \"sudo kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d\""
+  description = "Retrieve initial ArgoCD admin password. Assumes the SSM port-forward tunnel is running and KUBECONFIG=~/.kube/portfolio-config is exported."
+  value       = "kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 }
 
 output "website_urls" {

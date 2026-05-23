@@ -10,13 +10,8 @@ locals {
   amazon_linux_ami = "ami-00eb2fff34909df65"
 }
 
-# SSH Key Pair
-resource "aws_key_pair" "k3s" {
-  key_name   = "${var.cluster_name}-k3s-key"
-  public_key = var.ssh_public_key
-
-  tags = var.tags
-}
+# No SSH key pair — admin access is via SSM Session Manager only.
+# See outputs.tf for the SSM commands.
 
 # Security Group
 resource "aws_security_group" "k3s" {
@@ -24,21 +19,9 @@ resource "aws_security_group" "k3s" {
   description = "Security group for k3s instance"
   vpc_id      = var.vpc_id
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_admin_cidrs
-  }
-
-  ingress {
-    description = "k3s API"
-    from_port   = 6443
-    to_port     = 6443
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_admin_cidrs
-  }
+  # Ports 22 (SSH) and 6443 (k3s API) intentionally NOT exposed.
+  # Admin access via SSM Session Manager only; kubectl via SSM port-forward.
+  # See outputs `ssm_session_command` and `ssm_port_forward_kubectl_command`.
 
   ingress {
     description = "HTTP"
@@ -110,7 +93,6 @@ resource "aws_iam_instance_profile" "k3s" {
 resource "aws_instance" "k3s" {
   ami                    = local.amazon_linux_ami
   instance_type          = var.instance_type
-  key_name               = aws_key_pair.k3s.key_name
   subnet_id              = var.subnet_id
   vpc_security_group_ids = [aws_security_group.k3s.id]
   iam_instance_profile   = aws_iam_instance_profile.k3s.name

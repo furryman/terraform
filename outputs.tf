@@ -13,17 +13,27 @@ output "instance_public_ip" {
   value       = module.k3s.instance_public_ip
 }
 
-output "ssh_command" {
-  description = "SSH command to connect to the k3s instance"
-  value       = module.k3s.ssh_command
+output "ssm_session_command" {
+  description = "Open an interactive shell on the k3s instance via SSM Session Manager"
+  value       = module.k3s.ssm_session_command
 }
 
-output "kubeconfig_command" {
-  description = "Command to retrieve kubeconfig from the instance"
-  value       = module.k3s.kubeconfig_command
+output "ssm_port_forward_kubectl_command" {
+  description = "Open an SSM port-forward tunnel for kubectl. Run in a dedicated terminal."
+  value       = module.k3s.ssm_port_forward_kubectl_command
+}
+
+output "kubeconfig_retrieval_command" {
+  description = "One-time kubeconfig fetch via SSM. Saves to ~/.kube/portfolio-config."
+  value       = module.k3s.kubeconfig_retrieval_command
 }
 
 output "argocd_url" {
   description = "URL to access the ArgoCD UI"
   value       = module.k3s.argocd_url
+}
+
+output "argocd_password_command" {
+  description = "Retrieve the initial ArgoCD admin password (requires SSM tunnel + KUBECONFIG)"
+  value       = module.k3s.argocd_password_command
 }

@@ -59,11 +59,6 @@ variable "volume_size" {
   }
 }
 
-variable "ssh_public_key" {
-  description = "SSH public key for EC2 instance access"
-  type        = string
-}
-
 variable "allowed_admin_cidrs" {
   description = "CIDR blocks allowed for SSH (22), k3s API (6443), and ArgoCD UI (30443). No default — must be set in terraform.tfvars to avoid 0.0.0.0/0 exposure."
   type        = list(string)
