@@ -28,9 +28,12 @@ tar -xzf "${TMPDIR}/helm.tar.gz" -C "${TMPDIR}"
 sudo install -m 0755 "${TMPDIR}/linux-${ARCH_SUFFIX}/helm" /usr/local/bin/helm
 helm version --short
 
-echo "=== Priming Helm repo cache ==="
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo add jetstack https://charts.jetstack.io
-helm repo update
+echo "=== Priming Helm repo cache (as root — user_data runs as root) ==="
+# Repos are cached per-user in $HOME/.config/helm/repositories.yaml.
+# user_data runs as root, so cache the repos under root's home; otherwise
+# `helm install argo/argo-cd` at runtime fails with "repo argo not found".
+sudo helm repo add argo https://argoproj.github.io/argo-helm
+sudo helm repo add jetstack https://charts.jetstack.io
+sudo helm repo update
 
 echo "=== Helm install complete (kubectl provided by k3s symlink) ==="
