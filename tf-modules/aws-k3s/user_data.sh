@@ -1,71 +1,54 @@
 #!/bin/bash
+# Runtime bootstrap. Most install-time work (k3s binary, helm, kubectl,
+# repo cache, ssm-agent) is pre-baked into the Packer AMI. This script
+# wires the instance-specific bits at first boot.
 set -euo pipefail
 
-# Ensure log directory exists and redirect all output
 mkdir -p /var/log
 exec > >(tee -a /var/log/k3s-init.log) 2>&1
 
-echo "=== Starting k3s and ArgoCD installation ==="
+echo "=== Runtime bootstrap on Packer AMI ==="
 
-# Wait for network connectivity
-until ping -c1 google.com &>/dev/null; do
-  echo "Waiting for network..."
+# Wait for network egress.
+until curl -sf -o /dev/null https://get.k3s.io --max-time 5; do
+  echo "waiting for network..."
   sleep 2
 done
 
-# Ensure SSM Agent is installed and enabled (AL2023 ships it preinstalled but
-# disabled on some AMI variants — explicit enable so `aws ssm start-session`
-# works as the sole admin path).
-dnf install -y amazon-ssm-agent
+# SSM Agent is preinstalled by the Packer AMI but defaults to disabled —
+# explicitly enable so admin access via `aws ssm start-session` works.
 systemctl enable --now amazon-ssm-agent
 
-# Get instance public IP for k3s TLS SAN
+# Pull the instance's public IP from IMDSv2 for k3s TLS-SAN.
 TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
   http://169.254.169.254/latest/meta-data/public-ipv4)
 
-# Install k3s (single-node server)
-curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
-  --write-kubeconfig-mode=644 \
-  --tls-san=$PUBLIC_IP \
-  --disable=traefik" \
+# Re-run the k3s installer with the runtime --tls-san. SKIP_DOWNLOAD=true
+# means we reuse the binary baked into the AMI; the script just rewrites
+# /etc/systemd/system/k3s.service with the right args and starts the
+# service. Takes ~5 sec.
+curl -sfL https://get.k3s.io | \
+  INSTALL_K3S_SKIP_DOWNLOAD=true \
+  INSTALL_K3S_EXEC="server --disable=traefik --write-kubeconfig-mode=644 --tls-san=$PUBLIC_IP" \
   sh -
 
-# Wait for k3s to be ready
-echo "Waiting for k3s to be ready..."
+# Wait for k3s API to be ready.
 until /usr/local/bin/kubectl get nodes 2>/dev/null | grep -q " Ready"; do
-  sleep 5
+  sleep 3
 done
-echo "k3s is ready."
-
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-# Install Helm
-curl -sfL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-# Create ArgoCD namespace
+# Install ArgoCD. helm + the argo repo cache are pre-baked.
 /usr/local/bin/kubectl create namespace argocd
-
-# Add ArgoCD Helm repo
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo update
-
-# Install ArgoCD via Helm.
-# --insecure: ArgoCD server listens on HTTP only; TLS terminates at the
-# Gateway (envoy-gateway-system/public) via an HTTPRoute. No NodePort —
-# external clients reach the UI through ingress on 443.
 helm install argocd argo/argo-cd \
   --namespace argocd \
   --version "${argocd_chart_version}" \
   --set 'configs.params.server\.insecure=true' \
   --wait --timeout 300s
 
-# Wait for ArgoCD server to be ready
-echo "Waiting for ArgoCD server..."
-/usr/local/bin/kubectl -n argocd rollout status deployment/argocd-server --timeout=300s
-
-# Install argocd-apps chart (App-of-Apps pattern)
+# Install App-of-Apps so ArgoCD takes over cluster-state management.
 cat <<'APPEOF' > /tmp/argocd-apps-values.yaml
 applications:
   - name: app-of-apps
@@ -94,10 +77,4 @@ helm install argocd-apps argo/argocd-apps \
 
 rm -f /tmp/argocd-apps-values.yaml
 
-echo "=== k3s and ArgoCD installation complete ==="
-echo "ArgoCD admin password (retrieve later via:"
-echo "  KUBECONFIG=~/.kube/portfolio-config kubectl -n argocd get secret \\"
-echo "    argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d):"
-/usr/local/bin/kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d 2>/dev/null || echo "(not yet generated)"
-echo ""
+echo "=== Runtime bootstrap complete ==="

@@ -1,12 +1,28 @@
 # AWS k3s Module
 # Creates a single EC2 instance running k3s with ArgoCD
 
+# Packer-built AMI lookup. The CI workflow (.github/workflows/build-ami.yml)
+# tags AMIs with ManagedBy=Packer + Cluster=<cluster_name>. most_recent=true
+# means new builds auto-roll into the next `terraform apply` — but because
+# aws_instance.k3s has user_data_replace_on_change=true, an AMI change alone
+# won't force replacement unless user_data also changes.
+data "aws_ami" "packer_baked" {
+  most_recent = true
+  owners      = ["self"]
+
+  filter {
+    name   = "tag:ManagedBy"
+    values = ["Packer"]
+  }
+
+  filter {
+    name   = "tag:Cluster"
+    values = [var.cluster_name]
+  }
+}
+
 locals {
-  # Pinned AMI: AL2023 arm64 (kernel 6.12, published 2026-05-15).
-  # Phase 3.5 — migrated from x86_64 t3.small to arm64 t4g.medium to add
-  # memory headroom for Phase 4's Envoy Gateway. Phase 7 will replace this
-  # with a Packer-built AMI.
-  amazon_linux_ami = "ami-04e0d7d889f694536"
+  amazon_linux_ami = data.aws_ami.packer_baked.id
 }
 
 # No SSH key pair — admin access is via SSM Session Manager only.
