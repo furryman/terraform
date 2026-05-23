@@ -34,11 +34,13 @@ curl -sfL https://get.k3s.io | \
   INSTALL_K3S_EXEC="server --disable=traefik --write-kubeconfig-mode=644 --tls-san=$PUBLIC_IP" \
   sh -
 
-# Wait for k3s API to be ready.
+# Wait for k3s API to be ready. Set KUBECONFIG explicitly — even though
+# the kubectl symlink auto-discovers it, being explicit makes the wait
+# robust against any AMI rebuild that drops the symlink.
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 until /usr/local/bin/kubectl get nodes 2>/dev/null | grep -q " Ready"; do
   sleep 3
 done
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 # Install ArgoCD. helm + the argo repo cache are pre-baked.
 /usr/local/bin/kubectl create namespace argocd

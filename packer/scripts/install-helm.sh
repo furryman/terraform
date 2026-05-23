@@ -1,12 +1,16 @@
 #!/bin/bash
-# Install Helm + kubectl binaries and pre-populate the Helm repo cache so
-# `helm install` at runtime doesn't have to fetch chart indexes for the first time.
+# Install Helm and pre-populate the Helm repo cache so `helm install` at
+# runtime doesn't have to fetch chart indexes for the first time.
+#
+# kubectl is intentionally NOT installed here — the k3s install in
+# install-k3s.sh creates /usr/local/bin/kubectl as a symlink to /usr/local/bin/k3s,
+# which auto-discovers the k3s kubeconfig at /etc/rancher/k3s/k3s.yaml.
+# Installing upstream kubectl on top would overwrite the symlink and break
+# auto-discovery.
 set -euo pipefail
 
 HELM_VERSION="${HELM_VERSION:-v3.15.4}"
-KUBECTL_VERSION="${KUBECTL_VERSION:-v1.30.4}"
 
-# Detect architecture (arm64 for t4g, amd64 for t3).
 ARCH=$(uname -m)
 case "${ARCH}" in
     x86_64)        ARCH_SUFFIX="amd64" ;;
@@ -24,15 +28,9 @@ tar -xzf "${TMPDIR}/helm.tar.gz" -C "${TMPDIR}"
 sudo install -m 0755 "${TMPDIR}/linux-${ARCH_SUFFIX}/helm" /usr/local/bin/helm
 helm version --short
 
-echo "=== Installing kubectl ${KUBECTL_VERSION} (${ARCH_SUFFIX}) ==="
-curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH_SUFFIX}/kubectl" \
-    -o "${TMPDIR}/kubectl"
-sudo install -m 0755 "${TMPDIR}/kubectl" /usr/local/bin/kubectl
-kubectl version --client
-
 echo "=== Priming Helm repo cache ==="
 helm repo add argo https://argoproj.github.io/argo-helm
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
 
-echo "=== Helm + kubectl install complete ==="
+echo "=== Helm install complete (kubectl provided by k3s symlink) ==="
