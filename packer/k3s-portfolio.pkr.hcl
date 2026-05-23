@@ -91,10 +91,13 @@ source "amazon-ebs" "k3s" {
   ami_name      = local.ami_name
   ami_description = "k3s ${var.k3s_version} + helm ${var.helm_version} on AL2023 ARM. Built ${formatdate("YYYY-MM-DD", timestamp())}."
 
-  # Source AMI: latest AL2023 ARM, EBS-backed, HVM.
+  # Source AMI: latest AL2023 ARM (standard variant), EBS-backed, HVM.
+  # The `*-2023.*-*-arm64` pattern excludes ECS-optimized (al2023-ami-ecs-*)
+  # and minimal (al2023-ami-minimal-*) variants that ship with larger snapshots
+  # or stripped-down packages.
   source_ami_filter {
     filters = {
-      name                = "al2023-ami-*-arm64"
+      name                = "al2023-ami-2023.*-arm64"
       virtualization-type = "hvm"
       architecture        = "arm64"
       root-device-type    = "ebs"
