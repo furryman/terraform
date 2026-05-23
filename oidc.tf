@@ -86,6 +86,7 @@ resource "aws_iam_role_policy" "github_actions_packer" {
           "ec2:DeleteSnapshot",
           "ec2:CopyImage",
           "ec2:CreateTags",
+          "ec2:ModifyImageAttribute", # Packer sets description after AMI creation
 
           # Temporary SSH key Packer generates
           "ec2:CreateKeyPair",
