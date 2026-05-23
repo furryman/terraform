@@ -2,12 +2,11 @@
 # Creates a single EC2 instance running k3s with ArgoCD
 
 locals {
-  # Pinned AMI: AL2023 x86_64. This is the AMI the live k3s instance was
-  # originally built from — pinning to the runtime value (not the latest)
-  # so removing `ignore_changes = [ami]` is a true no-op.
-  # Bump explicitly when a new image is needed — do not float.
-  # Phase 6 switches this to AL2023 arm64; Phase 7 to a Packer-built AMI.
-  amazon_linux_ami = "ami-00eb2fff34909df65"
+  # Pinned AMI: AL2023 arm64 (kernel 6.12, published 2026-05-15).
+  # Phase 3.5 — migrated from x86_64 t3.small to arm64 t4g.medium to add
+  # memory headroom for Phase 4's Envoy Gateway. Phase 7 will replace this
+  # with a Packer-built AMI.
+  amazon_linux_ami = "ami-04e0d7d889f694536"
 }
 
 # No SSH key pair — admin access is via SSM Session Manager only.
@@ -122,5 +121,17 @@ resource "aws_instance" "k3s" {
 
   tags = merge(var.tags, {
     Name = "${var.cluster_name}-k3s"
+  })
+}
+
+# Elastic IP — stable public address that survives stop/start and instance
+# replacement. Free of charge while attached to a running instance; the
+# standard Public IPv4 charge ($0.005/hr) applies either way.
+resource "aws_eip" "k3s" {
+  instance = aws_instance.k3s.id
+  domain   = "vpc"
+
+  tags = merge(var.tags, {
+    Name = "${var.cluster_name}-k3s-eip"
   })
 }

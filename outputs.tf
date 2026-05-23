@@ -9,8 +9,13 @@ output "instance_id" {
 }
 
 output "instance_public_ip" {
-  description = "The public IP of the k3s instance"
+  description = "The public IP (Elastic IP) of the k3s instance"
   value       = module.k3s.instance_public_ip
+}
+
+output "instance_private_ip" {
+  description = "The private (VPC) IP of the k3s instance"
+  value       = module.k3s.instance_private_ip
 }
 
 output "ssm_session_command" {

@@ -4,8 +4,13 @@ output "instance_id" {
 }
 
 output "instance_public_ip" {
-  description = "The public IP of the k3s instance (still ephemeral until EIP lands in Phase 3)"
-  value       = aws_instance.k3s.public_ip
+  description = "The public IP (Elastic IP) of the k3s instance"
+  value       = aws_eip.k3s.public_ip
+}
+
+output "instance_private_ip" {
+  description = "The private (VPC) IP of the k3s instance"
+  value       = aws_instance.k3s.private_ip
 }
 
 output "instance_public_dns" {

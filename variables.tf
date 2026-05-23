@@ -40,7 +40,7 @@ variable "vpc_cidr" {
 variable "instance_type" {
   description = "EC2 instance type for the k3s node"
   type        = string
-  default     = "t3.small" # 2GB RAM — enough for k3s + ArgoCD
+  default     = "t4g.medium" # Graviton ARM, 4GB RAM — Phase 3.5 sized up from t3.small (2GB) to fit Envoy Gateway + ArgoCD chart 9.x.
 
   validation {
     condition     = can(regex("^(t3|t3a|t4g)\\.(small|medium|large)$", var.instance_type))

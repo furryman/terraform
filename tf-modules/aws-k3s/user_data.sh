@@ -13,8 +13,11 @@ until ping -c1 google.com &>/dev/null; do
   sleep 2
 done
 
-# Install iptables (not included in Amazon Linux 2023 by default)
-dnf install -y iptables-nft
+# Install iptables (not in AL2023 default) + ensure SSM Agent is present and
+# running. The AMI we pin ships ssm-agent preinstalled but disabled — explicitly
+# enable so admin access via `aws ssm start-session` works on first boot.
+dnf install -y iptables-nft amazon-ssm-agent
+systemctl enable --now amazon-ssm-agent
 
 # Get instance public IP for TLS SAN
 TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
