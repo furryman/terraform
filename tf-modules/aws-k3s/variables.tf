@@ -14,9 +14,8 @@ variable "subnet_id" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type"
+  description = "EC2 instance type. No default — root module forwards its own value."
   type        = string
-  default     = "t3.micro"
 }
 
 variable "volume_size" {
@@ -30,10 +29,9 @@ variable "ssh_public_key" {
   type        = string
 }
 
-variable "allowed_ssh_cidrs" {
-  description = "CIDR blocks allowed to SSH and access k3s API"
+variable "allowed_admin_cidrs" {
+  description = "CIDR blocks allowed for SSH (22), k3s API (6443), and ArgoCD UI (30443)"
   type        = list(string)
-  default     = ["0.0.0.0/0"]
 }
 
 variable "app_of_apps_repo_url" {

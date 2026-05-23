@@ -1,10 +1,12 @@
 terraform {
-  required_version = ">= 1.14.0"
+  # 1.15+ required for native S3 backend locking (use_lockfile).
+  required_version = ">= 1.15.0"
 
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0"
+      source = "hashicorp/aws"
+      # Pinned to the 6.x line; patch + minor bumps allowed, major requires explicit decision.
+      version = "~> 6.31"
     }
   }
 }

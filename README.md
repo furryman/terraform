@@ -144,7 +144,7 @@ terraform/
 | `instance_type` | EC2 instance type | `t3.small` |
 | `volume_size` | Root EBS volume size (GB) | `20` |
 | `ssh_public_key` | SSH public key content | *required* |
-| `allowed_ssh_cidrs` | CIDRs for SSH/API access | `["0.0.0.0/0"]` |
+| `allowed_admin_cidrs` | CIDRs for SSH (22), k8s API (6443), ArgoCD UI (30443) | *required* |
 | `app_of_apps_repo_url` | ArgoCD App-of-Apps repo | `https://github.com/furryman/argocd-app-of-apps.git` |
 | `argocd_chart_version` | ArgoCD Helm chart version | `5.55.0` |
 | `budget_notification_email` | Email for budget alerts | *required* |

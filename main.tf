@@ -2,10 +2,10 @@
 # Orchestrates VPC and k3s modules
 
 locals {
+  # Environment, ManagedBy, Project come from provider default_tags (providers.tf).
+  # Only module-specific tags live here.
   tags = {
-    Environment = var.environment
-    Cluster     = var.cluster_name
-    ManagedBy   = "Terraform"
+    Cluster = var.cluster_name
   }
 }
 
@@ -28,10 +28,8 @@ module "k3s" {
   instance_type        = var.instance_type
   volume_size          = var.volume_size
   ssh_public_key       = var.ssh_public_key
-  allowed_ssh_cidrs    = var.allowed_ssh_cidrs
+  allowed_admin_cidrs  = var.allowed_admin_cidrs
   app_of_apps_repo_url = var.app_of_apps_repo_url
   argocd_chart_version = var.argocd_chart_version
   tags                 = local.tags
-
-  depends_on = [module.vpc]
 }

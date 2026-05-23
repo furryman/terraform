@@ -6,7 +6,8 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  azs = slice(data.aws_availability_zones.available.names, 0, 2)
+  # Single-AZ deployment — explicit so the slice doesn't read as misleading.
+  primary_az = data.aws_availability_zones.available.names[0]
 }
 
 # VPC
@@ -33,22 +34,11 @@ resource "aws_internet_gateway" "main" {
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.public_subnet_cidr
-  availability_zone       = local.azs[0]
+  availability_zone       = local.primary_az
   map_public_ip_on_launch = true
 
   tags = merge(var.tags, {
     Name = "${var.cluster_name}-public-subnet"
-  })
-}
-
-# Private Subnet (reserved for future use)
-resource "aws_subnet" "private" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnet_cidr
-  availability_zone = local.azs[0]
-
-  tags = merge(var.tags, {
-    Name = "${var.cluster_name}-private-subnet"
   })
 }
 
