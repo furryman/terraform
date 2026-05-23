@@ -4,6 +4,12 @@
 # wires the instance-specific bits at first boot.
 set -euo pipefail
 
+# cloud-init invokes user-data scripts without HOME set. helm looks for
+# its repo config at $HOME/.config/helm/repositories.yaml; without HOME,
+# `helm install argo/argo-cd` fails with "repo argo not found" even
+# though the repos are cached in /root/.config/helm/. Fix it explicitly.
+export HOME=/root
+
 mkdir -p /var/log
 exec > >(tee -a /var/log/k3s-init.log) 2>&1
 
