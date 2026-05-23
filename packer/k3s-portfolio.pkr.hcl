@@ -175,11 +175,10 @@ build {
       "echo '=== Cleaning up ==='",
       "sudo dnf clean all",
       "sudo rm -rf /var/cache/dnf /tmp/*",
-      "# Reset machine-id so each launched instance generates its own",
+      # Reset machine-id so each launched instance generates its own.
+      # AL2023 doesn't ship dbus, so skip the /var/lib/dbus symlink fixup.
       "sudo truncate -s 0 /etc/machine-id",
-      "sudo rm -f /var/lib/dbus/machine-id",
-      "sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id",
-      "# Clear bash history",
+      # Clear bash history.
       "history -c || true",
       "sudo rm -f /home/ec2-user/.bash_history /root/.bash_history",
       "echo '=== AMI build complete ==='",
