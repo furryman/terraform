@@ -7,10 +7,10 @@
 # Build locally:   packer init . && packer validate . && packer build .
 # Build in CI:     see .github/workflows/build-ami.yml in this repo (Phase 7.3).
 #
-# The runtime `user_data.sh` still does cluster-specific bootstrap (starts k3s
-# with `--tls-san=<public-ip>`, installs ArgoCD via Helm, applies the
-# App-of-Apps Application). Everything that doesn't depend on the runtime
-# instance identity lives in this AMI.
+# All bootstrap is declarative and baked into the AMI: k3s server config
+# at /etc/rancher/k3s/config.yaml, and helm-controller manifests at
+# /var/lib/rancher/k3s/server/manifests/ that install ArgoCD and the
+# App-of-Apps Application at first boot. No user_data script needed.
 
 packer {
   required_plugins {
@@ -86,9 +86,9 @@ locals {
 # --- Source: AL2023 ARM, EBS-backed ------------------------------------------
 
 source "amazon-ebs" "k3s" {
-  region        = var.aws_region
-  instance_type = var.instance_type
-  ami_name      = local.ami_name
+  region          = var.aws_region
+  instance_type   = var.instance_type
+  ami_name        = local.ami_name
   ami_description = "k3s ${var.k3s_version} + helm ${var.helm_version} on AL2023 ARM. Built ${formatdate("YYYY-MM-DD", timestamp())}."
 
   # Source AMI: latest AL2023 ARM (standard variant), EBS-backed, HVM.
@@ -164,6 +164,35 @@ build {
     environment_vars = [
       "HELM_VERSION=${var.helm_version}",
       "KUBECTL_VERSION=${var.kubectl_version}",
+    ]
+  }
+
+  # Stage declarative bootstrap files into a temp directory; the next
+  # `shell` provisioner moves them into root-owned locations.
+  provisioner "file" {
+    source      = "files/k3s-config.yaml"
+    destination = "/tmp/k3s-config.yaml"
+  }
+
+  provisioner "file" {
+    source      = "files/k3s-manifests/"
+    destination = "/tmp/k3s-manifests/"
+  }
+
+  # Install declarative bootstrap files + enable k3s and ssm-agent so
+  # the instance comes up bootstrapped without any user_data script.
+  provisioner "shell" {
+    inline = [
+      "set -euo pipefail",
+      "echo '=== Installing declarative bootstrap files ==='",
+      "sudo mkdir -p /etc/rancher/k3s /var/lib/rancher/k3s/server/manifests",
+      "sudo install -m 0600 /tmp/k3s-config.yaml /etc/rancher/k3s/config.yaml",
+      "sudo install -m 0644 /tmp/k3s-manifests/00-argocd-namespace.yaml /var/lib/rancher/k3s/server/manifests/",
+      "sudo install -m 0644 /tmp/k3s-manifests/10-argocd-helm.yaml /var/lib/rancher/k3s/server/manifests/",
+      "sudo install -m 0644 /tmp/k3s-manifests/20-app-of-apps.yaml /var/lib/rancher/k3s/server/manifests/",
+      "rm -rf /tmp/k3s-config.yaml /tmp/k3s-manifests",
+      "echo '=== Enabling k3s and amazon-ssm-agent for first-boot startup ==='",
+      "sudo systemctl enable k3s.service amazon-ssm-agent",
     ]
   }
 
