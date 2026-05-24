@@ -175,8 +175,8 @@ build {
   }
 
   provisioner "file" {
-    source      = "files/k3s-manifests/"
-    destination = "/tmp/k3s-manifests/"
+    source      = "files/k3s-manifests"
+    destination = "/tmp"
   }
 
   # Install declarative bootstrap files + enable k3s and ssm-agent so
