@@ -1,0 +1,25 @@
+# k3s helm-controller will fetch and install the argo-cd Helm chart at
+# this exact version. Equivalent of the previous user_data.sh:
+#   helm install argocd argo/argo-cd --namespace argocd
+#     --version "${argocd_chart_version}"
+#     --set 'configs.params.server\.insecure=true'
+#
+# The HelmChart CRD is k3s-native (apiVersion: helm.cattle.io/v1).
+# Lives in the kube-system namespace by convention; targetNamespace
+# directs install into argocd.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: argocd
+  namespace: kube-system
+spec:
+  chart: argo-cd
+  repo: https://argoproj.github.io/argo-helm
+  version: 9.5.15
+  targetNamespace: argocd
+  # TLS terminates at Envoy Gateway via HTTPRoute argocd-server; ArgoCD
+  # itself runs with --insecure so it doesn't double-terminate TLS.
+  valuesContent: |-
+    configs:
+      params:
+        server.insecure: true

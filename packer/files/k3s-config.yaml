@@ -1,0 +1,8 @@
+# k3s server configuration, applied at startup.
+# Equivalent of the previous user_data.sh INSTALL_K3S_EXEC args:
+#   "server --disable=traefik --write-kubeconfig-mode=644"
+# minus --tls-san=<public-ip> (D6: public IP SAN is unused; access is via
+# SSM tunnel to 127.0.0.1 which is in k3s's default SAN list).
+disable:
+  - traefik
+write-kubeconfig-mode: "0644"

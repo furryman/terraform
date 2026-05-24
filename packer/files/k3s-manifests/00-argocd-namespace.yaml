@@ -1,0 +1,7 @@
+# Namespace for ArgoCD. Applied by k3s helm-controller before any chart
+# that targets the argocd namespace. Numeric prefix `00-` ensures it
+# orders ahead of `10-argocd-helm.yaml`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd

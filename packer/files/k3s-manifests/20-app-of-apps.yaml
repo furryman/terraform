@@ -1,0 +1,28 @@
+# Replaces the previous user_data.sh `helm install argocd-apps` invocation.
+# k3s helm-controller applies this YAML at startup; ArgoCD picks it up
+# once its server is healthy. App-of-Apps then declares all child
+# Applications (cert-manager, envoy-gateway, external-dns,
+# fuhriman-website).
+#
+# URL hardcoded per decision D8: AMI is single-purpose, URL is stable
+# infrastructure for this cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/furryman/argocd-app-of-apps.git
+    path: .
+    targetRevision: HEAD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
