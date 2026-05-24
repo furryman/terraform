@@ -58,7 +58,7 @@ aws-vpc → aws-k3s → aws-dns
 ```
 
 - **`tf-modules/aws-vpc/`** — VPC (10.0.0.0/16), one public subnet, single AZ. No NAT Gateway (cost). Single-AZ slicing is deliberate; do not "fix" it by introducing multi-AZ data sources.
-- **`tf-modules/aws-k3s/`** — Single EC2 instance (`t4g.medium`, ARM) running k3s. Launched from a **Packer-built AMI** (k3s, helm, ssm-agent, helm repo cache pre-baked). `user_data.sh` is ~55 lines of runtime-only bootstrap. Elastic IP attached for stable public address. SSM Session Manager is the **only** admin path — ports 22 (SSH) and 6443 (k8s API) are not exposed.
+- **`tf-modules/aws-k3s/`** — Single EC2 instance (`t4g.medium`, ARM) running k3s. Launched from a **Packer-built AMI** that contains everything: k3s binary, systemd units (enabled), helm-controller manifests under `/var/lib/rancher/k3s/server/manifests/` (ArgoCD HelmChart CR + App-of-Apps Application), k3s server config at `/etc/rancher/k3s/config.yaml`, and the ssm-agent (enabled). **No `user_data` script — bootstrap is fully declarative inside the AMI.** Elastic IP attached for stable public address. SSM Session Manager is the **only** admin path — ports 22 (SSH) and 6443 (k8s API) are not exposed.
 - **`tf-modules/aws-dns/`** — Single public Route53 hosted zone for `fuhriman.org`. ExternalDNS in-cluster manages records from `HTTPRoute` resources (and the Gateway's annotation). Squarespace is the registrar only; NS records delegate to Route53.
 
 Root module (`main.tf`) wires the three modules together and defines:
@@ -97,7 +97,7 @@ S3 + native `use_lockfile` locking (Terraform 1.15+). **No DynamoDB lock table**
 
 ## Providers
 
-Only the AWS provider is configured in `providers.tf`. Pinned to `~> 6.31`. Default tags applied via `default_tags`: `Environment`, `ManagedBy`, `Project`. Per-resource `Cluster` and `Name` tags come from `local.tags` and `merge(var.tags, {Name=...})` patterns. **No Kubernetes or Helm providers** — ArgoCD is installed by `user_data.sh` and all cluster workloads are managed by ArgoCD via the App-of-Apps repo.
+Only the AWS provider is configured in `providers.tf`. Pinned to `~> 6.31`. Default tags applied via `default_tags`: `Environment`, `ManagedBy`, `Project`. Per-resource `Cluster` and `Name` tags come from `local.tags` and `merge(var.tags, {Name=...})` patterns. **No Kubernetes or Helm providers** — ArgoCD is installed at first boot by k3s's built-in `helm-controller` (reading manifests baked into the AMI at `/var/lib/rancher/k3s/server/manifests/`), and all cluster workloads are managed by ArgoCD via the App-of-Apps repo.
 
 ## Packer pipeline
 
@@ -122,8 +122,7 @@ Key Packer gotchas captured in the scripts:
 - Instance is `t4g.medium` (4 GB RAM, ARM Graviton). 2 GB was too small for Envoy Gateway controller + ArgoCD 9.x to coexist comfortably.
 - **IMDSv2 enforced** (`http_tokens=required`), `http_put_response_hop_limit=2`.
 - AMI is Packer-built (tagged `ManagedBy=Packer` + `Cluster=fuhriman-k3s`); `most_recent=true` picks the latest.
-- `user_data_replace_on_change = true` — any change to `user_data.sh` forces instance replacement. Plan carefully.
-- **Cloud-init runs without `HOME` set.** `user_data.sh` exports `HOME=/root` near the top — preserve this.
+- AMI ID change is the single trigger for instance replacement (`user_data` is gone; there's no other forced-replace mechanism). Plan carefully — `terraform apply` after a Packer build will replace the instance.
 - No `aws_key_pair` resource. SSH is not used.
 - Domain `fuhriman.org` is delegated from Squarespace to Route53 via NS records (manual one-time step in the registrar).
 - Chart versions: ArgoCD 9.5.15; argocd-apps 1.6.2; cert-manager 1.14.0; envoy-gateway v1.3.0; external-dns 1.15.0.
@@ -140,9 +139,9 @@ Key Packer gotchas captured in the scripts:
 **Defaults**:
 
 - The **deployed state is the source of truth.** `terraform output`, `aws` CLI, `kubectl get`, and `git log` are authoritative. Plan docs under `docs/plans/` describe the journey and may not match current state.
-- Run `terraform plan` before applying anything. A `user_data.sh` edit forces instance replacement (and k3s CA regeneration — kubeconfig will need refresh after).
+- Run `terraform plan` before applying anything. A new AMI build forces instance replacement (and k3s CA regeneration — kubeconfig will need refresh after).
 - New AWS resources get `local.tags` merged in; do not re-declare `Environment`/`ManagedBy`/`Project` per-resource — those come from `default_tags`.
-- Keep `aws-k3s` boot logic split correctly: install-time → Packer scripts; runtime/per-instance → `user_data.sh`. If you find yourself adding more than a few lines to `user_data.sh`, consider whether it belongs Packer-side.
+- All cluster bootstrap belongs in the Packer AMI. New files for declarative bootstrap go in `packer/files/` (and `packer/files/k3s-manifests/` for things `helm-controller` should auto-apply). Avoid the temptation to introduce `user_data` again — there is one bootstrap mechanism, and it is the AMI.
 
 **Gotchas**:
 
@@ -151,6 +150,7 @@ Key Packer gotchas captured in the scripts:
 - ExternalDNS uses ambient EC2 instance-role credentials (no IRSA, no service-account annotations). The IAM policy is in the root `main.tf`; if you add another DNS-managing controller, attach to the same role.
 - The OIDC trust policy in `oidc.tf` is scoped to the `furryman/terraform` repo. Forking won't transfer trust — replace the `sub` claim.
 - Don't `terraform destroy` casually — the Route53 zone teardown is recoverable (Squarespace still has the NS records and can be repointed) but disruptive.
+- First-boot debugging: without `user_data.sh` there is no `/var/log/k3s-init.log`. Use `journalctl -u k3s` for k3s server logs, `kubectl get helmchart,helmchartconfig -A` for the helm-controller view of in-flight chart installs, and `kubectl logs -n kube-system job/helm-install-argocd-<hash>` for the argo-cd install job's output.
 
 ## Reference
 
