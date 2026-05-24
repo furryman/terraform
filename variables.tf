@@ -59,18 +59,6 @@ variable "volume_size" {
   }
 }
 
-variable "app_of_apps_repo_url" {
-  description = "Git repository URL for the app-of-apps chart"
-  type        = string
-  default     = "https://github.com/furryman/argocd-app-of-apps.git"
-}
-
-variable "argocd_chart_version" {
-  description = "ArgoCD Helm chart version (9.x ships ArgoCD v3 with Gateway API-ready defaults)"
-  type        = string
-  default     = "9.5.15"
-}
-
 variable "budget_notification_email" {
   description = "Email address for AWS budget alert notifications"
   type        = string
