@@ -4,7 +4,7 @@
 # (--tls-san=<public-ip>, etc).
 set -euo pipefail
 
-K3S_VERSION="${K3S_VERSION:-v1.30.4+k3s1}"
+K3S_VERSION="${K3S_VERSION:-v1.36.1+k3s1}"
 
 echo "=== Installing k3s ${K3S_VERSION} (binary + systemd unit only) ==="
 

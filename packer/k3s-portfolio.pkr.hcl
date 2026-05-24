@@ -43,7 +43,7 @@ variable "ami_name_prefix" {
 
 variable "k3s_version" {
   type        = string
-  default     = "v1.30.4+k3s1"
+  default     = "v1.36.1+k3s1"
   description = "Pinned k3s version. Bump explicitly; do not float."
 }
 
@@ -55,7 +55,7 @@ variable "helm_version" {
 
 variable "kubectl_version" {
   type        = string
-  default     = "v1.30.4"
+  default     = "v1.36.1"
   description = "Pinned kubectl version. Should match k3s minor."
 }
 
