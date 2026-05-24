@@ -22,14 +22,12 @@ module "vpc" {
 module "k3s" {
   source = "./tf-modules/aws-k3s"
 
-  cluster_name         = var.cluster_name
-  vpc_id               = module.vpc.vpc_id
-  subnet_id            = module.vpc.public_subnet_id
-  instance_type        = var.instance_type
-  volume_size          = var.volume_size
-  app_of_apps_repo_url = var.app_of_apps_repo_url
-  argocd_chart_version = var.argocd_chart_version
-  tags                 = local.tags
+  cluster_name  = var.cluster_name
+  vpc_id        = module.vpc.vpc_id
+  subnet_id     = module.vpc.public_subnet_id
+  instance_type = var.instance_type
+  volume_size   = var.volume_size
+  tags          = local.tags
 }
 
 # DNS Module — Route53 public hosted zone

@@ -24,18 +24,6 @@ variable "volume_size" {
   default     = 20
 }
 
-variable "app_of_apps_repo_url" {
-  description = "Git repository URL for the ArgoCD app-of-apps chart"
-  type        = string
-}
-
-variable "argocd_chart_version" {
-  description = "ArgoCD Helm chart version"
-  type        = string
-  # Default matches the root variable; root forwards its own value.
-  default = "9.5.15"
-}
-
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)
