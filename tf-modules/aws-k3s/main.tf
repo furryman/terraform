@@ -3,9 +3,9 @@
 
 # Packer-built AMI lookup. The CI workflow (.github/workflows/build-ami.yml)
 # tags AMIs with ManagedBy=Packer + Cluster=<cluster_name>. most_recent=true
-# means new builds auto-roll into the next `terraform apply` — but because
-# aws_instance.k3s has user_data_replace_on_change=true, an AMI change alone
-# won't force replacement unless user_data also changes.
+# means new builds auto-roll into the next `terraform apply`.
+# Bootstrap is fully declarative inside the Packer AMI (see packer/files/).
+# An AMI ID change (new Packer build) forces instance replacement.
 data "aws_ami" "packer_baked" {
   most_recent = true
   owners      = ["self"]
@@ -124,17 +124,6 @@ resource "aws_instance" "k3s" {
     encrypted             = true
     delete_on_termination = true
   }
-
-  user_data_base64 = base64encode(templatefile("${path.module}/user_data.sh", {
-    app_of_apps_repo_url = var.app_of_apps_repo_url
-    argocd_chart_version = var.argocd_chart_version
-  }))
-
-  # user_data runs only at first boot; updating the script without replacing
-  # the instance would leave the new script un-executed. Force replacement on
-  # change so the new bootstrap actually takes effect. Phase 7's Packer AMI
-  # will move most of this work out of user_data entirely.
-  user_data_replace_on_change = true
 
   tags = merge(var.tags, {
     Name = "${var.cluster_name}-k3s"
